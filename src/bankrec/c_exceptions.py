@@ -263,9 +263,46 @@ def overpayments(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return mk_rows(out.with_columns(pl.col("open").alias("amount")), "c_overpayment", "OVERPAYMENT")
 
 
+# ------------------------------------------------------------------------------------------------------ FX_DIFFERENCE
+# POLICIES §3 FX_DIFFERENCE: the bank line is in a different currency than the invoice; the payer pays the invoice amount in
+# the invoice currency (the bank shows the instructed amount) and converts at its own rate. Every AR matcher skips lines
+# with orig_amount, so these receipts were never matched. We present them to the existing matchers *in the instructed
+# currency* (abs_amt := orig_amount, currency := orig_currency) and relabel: fully-cleared invoice rows -> FX_DIFFERENCE
+# (replacing empty / SHORT_DISCOUNT / SHORT_WITHHOLDING / SHORT_BANK_CHARGES); PARTIAL / SHORT_DISPUTE keep; credit notes empty.
+FX_REPLACES = ("", "SHORT_DISCOUNT", "SHORT_WITHHOLDING", "SHORT_BANK_CHARGES", "OVERPAYMENT")
+
+
+def fx_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    from .ar_exact import adjusted_amount, exact_amount
+    from .ar_multi import multi_invoice
+    fx = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_not_null() & (pl.col("orig_amt") > 0)
+                        & pl.col("orig_currency").is_not_null() & (pl.col("orig_currency") != pl.col("currency")))
+    if not fx.height:
+        return empty_rows()
+    p2 = fx.with_columns(pl.col("orig_amt").alias("abs_amt"), pl.col("orig_amt").alias("amt"), pl.col("orig_currency").alias("currency"),
+                         pl.lit(None, pl.Float64).alias("orig_amt"), pl.lit(None, pl.Utf8).alias("orig_currency"))
+    rows, pend = [], p2
+    for f in (exact_amount, adjusted_amount, multi_invoice):
+        r = f(ctx, pend)
+        if r.height:
+            rows.append(r)
+            pend = pend.join(r.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+        if not pend.height:
+            break
+    if not rows:
+        return empty_rows()
+    out = pl.concat(rows).join(ctx.items.select("item_id", "item_type"), on="item_id", how="left")
+    exc = pl.col("exception").fill_null("")
+    out = out.with_columns(
+        pl.when(pl.col("item_type") == "ARC").then(pl.lit(""))
+          .when(exc.is_in(list(FX_REPLACES))).then(pl.lit("FX_DIFFERENCE")).otherwise(exc).alias("exception"),
+        pl.concat_str([pl.lit("c_fx_"), pl.col("module")]).alias("module"))
+    return out.select("bank_txn_id", "item_id", "amount", "category", "exception", "module")
+
+
 # Late resolvers: they need the first payments already claimed (duplicates) and the open set settled down (overpayments).
 # bank_charges is exposed early through c_bank_charges.py. Pipeline order (BANKREC_ORDER):
 #   remittance,pdf_clauses,c_bank_charges,ar_text,ar_exact,ar_multi,c_exceptions
 # overpayments is NOT exposed yet: 6/43 precision on the sample (a parent paying for subsidiaries defeats the
 # "customer has exactly one open invoice" test). Follow-up once a group-aware payer check exists.
-RESOLVERS = [duplicates]
+RESOLVERS = [duplicates, fx_receipts]
