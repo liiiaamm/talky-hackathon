@@ -147,7 +147,8 @@ class CustomerMatcher:
                     "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False,
                     "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0,
                     "use_duplicates": True, "duplicate_days": 31,
-                    "use_overpayment": True, "over_max_pct": 10.0}
+                    "use_overpayment": True, "over_max_pct": 10.0,
+                    "anchor_complete": True, "anchor_complete_k": 2}
         if cfg:
             self.cfg.update(cfg)
 
@@ -400,6 +401,13 @@ class CustomerMatcher:
                      "source": "overpayment", "confidence": 0.8}
                 return MatchProposal(tid, s.party[i], "overpayment", 0.8, [], [a], False, ev)
 
+        # 3d. cited invoices + the few uncited ones that complete the cash (unique over the full pool) -> 'anchor_complete'
+        if cfg["anchor_complete"] and side == "AR" and refs:
+            res = self._anchor_complete(parties, target, cur, side, entities, refs, ledger)
+            if res:
+                pid, idxs = res
+                return MatchProposal(tid, pid, "anchor_complete", 0.8, [], alloc(idxs, "anchor_complete", 0.8), False, ev)
+
         # 4. partial hint on a single strongly referenced item
         if cfg["partial_hint"] and len(strong_refs) == 1:
             i = strong_refs[0]
@@ -409,6 +417,42 @@ class CustomerMatcher:
                      "source": "partial_hint", "confidence": 0.5}
                 return MatchProposal(tid, s.party[i], "partial_hint", 0.5, [], [a], False, ev)
         return MatchProposal(tid, parties[0] if parties else None, "abstain", 0.0, [], [], True, ev)
+
+    def _anchor_complete(self, parties, target, cur, side, entities, refs, ledger):
+        """A payment that cites some of its invoices (texts are cut at a fixed width, so the last ones are lost): the cited
+        open items of one payer are taken as anchors and the residual cash must be exactly ONE open invoice, or (when no
+        single one fits) exactly one pair, of the same payer and currency, searched over the payer's whole pool (the
+        bounded subset search only sees the oldest `max_pool`). Unique over the candidate payers, otherwise abstain."""
+        s, cfg = self.s, self.cfg
+        found = []
+        for pid in parties[: cfg["top_parties"]]:
+            pool = [i for i in s.by_party.get(pid, ()) if s.side[i] == side and s.currency[i] == cur
+                    and s.entity[i] in entities and ledger.open(i) != 0]
+            anchors = [i for i in pool if i in refs]
+            if not anchors:
+                continue
+            resid = target - sum(int(s.sign[i] * ledger.open(i)) for i in anchors)
+            if resid <= 0:
+                continue
+            aset = set(anchors)
+            rest = [i for i in pool if i not in aset and s.sign[i] > 0]
+            vals = [ledger.open(i) for i in rest]
+            sols = [(rest[j],) for j, v in enumerate(vals) if v == resid]
+            if not sols and cfg["anchor_complete_k"] >= 2:
+                seen = defaultdict(list)
+                for j, v in enumerate(vals):
+                    for k in seen.get(resid - v, ()):
+                        sols.append((rest[k], rest[j]))
+                        if len(sols) > 1:
+                            break
+                    if len(sols) > 1:
+                        break
+                    seen[v].append(j)
+            if len(sols) > 1:
+                return None
+            if sols:
+                found.append((pid, anchors + list(sols[0])))
+        return found[0] if len(found) == 1 else None
 
     def _search(self, members, target, cur, side, entities, refs, month, ledger, fn, mode):
         """Exact search on the open items of `members`. Returns (idxs, confidence, ambiguous, changed) or None.
