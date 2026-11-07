@@ -2,6 +2,7 @@
 
     python -m bankrec.categories --train            # trains on TRAIN up to 2024-12-31, saves models/categories.joblib
     python -m bankrec.categories --train --all      # trains on all TRAIN (use this for LIVE/FINAL)
+    python -m bankrec.categories --train --until 2024-06-30  # clean validation on both later windows
 
 Resolvers:
   strong_categories: lines whose predicted category (not ITEM / UNIDENTIFIED) has prob >= STRONG -> category row (runs early)
@@ -45,14 +46,16 @@ def _labels(ctx: Ctx) -> pl.DataFrame:
     return g.select("bank_txn_id", pl.when(pl.col("has_item")).then(pl.lit("ITEM")).otherwise(pl.col("cat")).alias("label"))
 
 
-def train(all_years: bool = False, n_item: int = 400_000):
+def train(all_years: bool = False, n_item: int = 400_000, until: str | None = None):
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
 
     from .data import load
     t0 = time.time()
-    ctx = load("train", None, None if all_years else "2024-12-31")
+    if all_years and until:
+        raise ValueError("--all and --until are mutually exclusive")
+    ctx = load("train", None, until or (None if all_years else "2024-12-31"))
     lab = _labels(ctx)
     df = ctx.bank.join(lab, on="bank_txn_id")
     item = df.filter(pl.col("label") == "ITEM").sample(min(n_item, df.filter(pl.col("label") == "ITEM").height), seed=0)
@@ -65,6 +68,12 @@ def train(all_years: bool = False, n_item: int = 400_000):
     clf.fit(X, y)
     os.makedirs(os.path.dirname(MODEL), exist_ok=True)
     joblib.dump(clf, MODEL)
+    import json
+    from pathlib import Path
+    Path(MODEL + ".metadata.json").write_text(json.dumps({
+        "training_until": until or (None if all_years else "2024-12-31"),
+        "all_years": all_years, "training_lines": len(y), "item_sample_seed": 0,
+    }, indent=2) + "\n")
     print(f"saved {MODEL} ({time.time() - t0:.0f}s)")
 
 
@@ -114,7 +123,11 @@ def all_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--train", action="store_true")
-    ap.add_argument("--all", action="store_true")
+    span = ap.add_mutually_exclusive_group()
+    span.add_argument("--all", action="store_true")
+    from datetime import date
+    span.add_argument("--until", type=lambda value: date.fromisoformat(value).isoformat(),
+                      help="last training booking date (inclusive), e.g. 2024-06-30 for clean H2 validation")
     a = ap.parse_args()
     if a.train:
-        train(a.all)
+        train(a.all, until=a.until)

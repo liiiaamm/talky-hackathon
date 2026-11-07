@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import resource
+import sys
 import time
+import traceback
 
 import polars as pl
 
@@ -49,38 +52,101 @@ LEDGER = os.environ.get("BANKREC_LEDGER", "0") == "1"
 
 
 def apply_ledger(ctx: Ctx, rows: pl.DataFrame):
-    """Shared ledger: what a resolver settled reduces ctx.items.open_amount for the resolvers after it
-    (RETURNED re-opens, DUPLICATE_PAYMENT leaves the balance, anything else reduces it). Fully settled items leave ctx.items."""
+    """Replay accepted allocations in bank-date order against the opening balances.
+
+    Keep closed items in the private ledger so a later RETURNED can reopen them.
+    Policies require fully clearing exceptions to carry the full open amount;
+    subtract that amount rather than a sentinel that would swallow future returns.
+    Resolver priority still decides which proposal owns a bank line.
+    """
     it = rows.filter(pl.col("item_id").is_not_null() & (pl.col("item_id") != ""))
     if it.height == 0:
         return
-    delta = it.group_by("item_id").agg(
-        pl.when(pl.col("exception") == "RETURNED").then(-pl.col("amount"))
+    state = ctx.__dict__.get("_ledger")
+    if state is None:
+        roster = ctx.all_items if ctx.all_items is not None else ctx.items
+        # all_items includes paid documents needed by returns. The active view is
+        # authoritative for opening balances when callers construct a context.
+        roster = roster.drop("open_amount").join(
+            ctx.items.select("item_id", "open_amount"), on="item_id", how="left"
+        ).with_columns(pl.col("open_amount").fill_null(0.0))
+        state = ctx.__dict__["_ledger"] = {"opening": roster, "events": []}
+    state["events"].append(it.select("bank_txn_id", "item_id", "amount", "exception"))
+    events = pl.concat(state["events"], how="vertical_relaxed").join(
+        ctx.bank.select("bank_txn_id", "booking_date"), on="bank_txn_id", how="left"
+    ).sort("item_id", "booking_date", "bank_txn_id").with_columns(
+        pl.when(pl.col("exception") == "RETURNED").then(pl.col("amount"))
         .when(pl.col("exception") == "DUPLICATE_PAYMENT").then(0.0)
-        # fully-cleared exceptions close the item whatever the cash
-        .when(pl.col("exception").is_in(["SHORT_DISCOUNT", "SHORT_BANK_CHARGES", "SHORT_WITHHOLDING", "FX_DIFFERENCE", "OVERPAYMENT"]))
-        .then(pl.lit(1e15)).otherwise(pl.col("amount")).sum().alias("_d"))
-    items = ctx.items.join(delta, on="item_id", how="left").with_columns(
-        (pl.col("open_amount") - pl.col("_d").fill_null(0.0)).clip(lower_bound=0.0).round(2).alias("open_amount")).drop("_d")
-    ctx.items = items.filter(pl.col("open_amount") > 0.005)
+        .otherwise(-pl.col("amount")).alias("_change")
+    ).with_columns(pl.col("_change").cum_sum().over("item_id").alias("_sum"))
+    balances = events.join(
+        state["opening"].select("item_id", "open_amount"), on="item_id", how="inner"
+    ).sort("item_id", "booking_date", "bank_txn_id").with_columns((pl.col("open_amount") + pl.col("_sum")).alias("_raw"))
+    # Reflection at zero reproduces clipping after each chronological event,
+    # including a return following an over-applied/fully cleared allocation.
+    balances = balances.with_columns(
+        (pl.col("_raw") - pl.col("_raw").cum_min().over("item_id").clip(upper_bound=0.0))
+        .round(2).alias("_balance")
+    ).group_by("item_id").agg(pl.col("_balance").last())
+    ctx.items = state["opening"].join(balances, on="item_id", how="left").with_columns(
+        pl.coalesce("_balance", "open_amount").alias("open_amount")
+    ).drop("_balance").filter(pl.col("open_amount") > 0.005)
 
 
-def run(ctx: Ctx, modules=None, verbose=True) -> pl.DataFrame:
+def _memory_mb() -> tuple[float, float]:
+    """Current RSS and process high-water RSS on Linux; peak RSS elsewhere."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024 if sys.platform == "darwin" else 1024)
+    try:
+        with open("/proc/self/statm") as fh:
+            rss = int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1024 ** 2
+    except (OSError, ValueError, IndexError):
+        rss = peak
+    return rss, peak
+
+
+def run(ctx: Ctx, modules=None, verbose=True, *, safe=False, profile=False) -> pl.DataFrame:
     modules = MODULES if modules is None else modules
     pending = ctx.bank
     out = []
     for f in modules:
-        t0 = time.time()
-        rows = f(ctx, pending)
-        if rows.height:
-            rows = rows.join(pending.select("bank_txn_id"), on="bank_txn_id", how="semi")   # never touch lines already owned
-            out.append(rows)
-            pending = pending.join(rows.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
-            if LEDGER:
-                apply_ledger(ctx, rows)
+        t0 = time.perf_counter()
+        old_items, old_all_items = ctx.items, ctx.all_items
+        had_ledger = hasattr(ctx, "_ledger")
+        old_ledger = getattr(ctx, "_ledger", None)
+        if isinstance(old_ledger, dict):
+            old_ledger = {key: list(value) if isinstance(value, list) else value for key, value in old_ledger.items()}
+        rows = None
+        status = "ok"
+        try:
+            rows = f(ctx, pending)
+            if rows.height:
+                rows = rows.join(pending.select("bank_txn_id"), on="bank_txn_id", how="semi")
+                next_pending = pending.join(rows.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+                if LEDGER:
+                    apply_ledger(ctx, rows)
+                # Commit ownership only after all processing of this resolver succeeds.
+                out.append(rows)
+                pending = next_pending
+        except Exception:
+            ctx.items, ctx.all_items = old_items, old_all_items
+            if had_ledger:
+                ctx._ledger = old_ledger
+            elif hasattr(ctx, "_ledger"):
+                del ctx._ledger
+            status = "failed"
+            if not safe:
+                raise
+            rows = None
+            print(f"WARNING: resolver {f.__name__} failed; its bank lines remain pending", file=sys.stderr, flush=True)
+            traceback.print_exc()
+        finally:
+            elapsed = time.perf_counter() - t0
+            if profile:
+                rss, peak = _memory_mb()
+                print(f"PROFILE {f.__name__} status={status} elapsed_s={elapsed:.3f} rss_mb={rss:.1f} peak_rss_mb={peak:.1f}", flush=True)
         if verbose:
-            print(f"  {f.__name__:<22} lines {rows['bank_txn_id'].n_unique() if rows.height else 0:>8,}  rows {rows.height:>9,}"
-                  f"  pending {pending.height:>8,}  ({time.time() - t0:.1f}s)")
+            print(f"  {f.__name__:<22} lines {rows['bank_txn_id'].n_unique() if rows is not None and rows.height else 0:>8,}"
+                  f"  rows {rows.height if rows is not None else 0:>9,}  pending {pending.height:>8,}  ({elapsed:.1f}s)", flush=True)
     out.append(fallback(ctx, pending))
     return pl.concat(out, how="vertical_relaxed")
 
@@ -98,9 +164,11 @@ def validate(sub: pl.DataFrame, ctx: Ctx) -> list[str]:
         errs.append("duplicated (bank_txn_id, item_id)")
     if not it["item_id"].str.contains(r"^(ARI|ARC|API|APC)-\d{4}-\d{7}$").all():
         errs.append("bad item_id")
-    if (it["amount"].is_null() | (it["amount"] < 0)).any():
-        errs.append("item rows need a non-negative amount")
+    if (it["amount"].is_null() | ~it["amount"].is_finite() | (it["amount"] < 0)).any():
+        errs.append("item rows need a finite non-negative amount")
     noit = sub.filter(pl.col("item_id").is_null() | (pl.col("item_id") == ""))
+    if noit["amount"].is_not_null().any():
+        errs.append("amount must be empty on no-item rows")
     if noit["bank_txn_id"].is_duplicated().any():
         errs.append("more than one no-item row for a bank line")
     if noit.join(it.select("bank_txn_id"), on="bank_txn_id", how="semi").height:
@@ -119,11 +187,12 @@ def write(sub: pl.DataFrame, path: str):
     df = sub.select(
         "bank_txn_id", pl.col("item_id").fill_null(""),
         pl.when(pl.col("item_id").is_not_null() & (pl.col("item_id") != "")).then(pl.col("amount").round(2).map_elements(lambda x: f"{x:.2f}", return_dtype=pl.Utf8)).otherwise(pl.lit("")).alias("amount"),
-        pl.col("category").fill_null(""), pl.col("exception").fill_null(""))
+        pl.col("category").fill_null(""), pl.col("exception").fill_null("")).sort(SUBMIT_COLS)
     if path.endswith(".gz"):
         import gzip
-        with gzip.open(path, "wb", compresslevel=6) as fh:
-            df.write_csv(fh)
+        with open(path, "wb") as raw:
+            with gzip.GzipFile(filename="", mode="wb", compresslevel=6, fileobj=raw, mtime=0) as fh:
+                df.write_csv(fh)
     else:
         df.write_csv(path)
     size = os.path.getsize(path)
@@ -137,13 +206,17 @@ def main():
     ap.add_argument("--to", dest="dto")
     ap.add_argument("--out")
     ap.add_argument("--score", action="store_true")
+    ap.add_argument("--safe", action="store_true", help="continue after a failed resolver, with a visible warning")
+    ap.add_argument("--profile", action="store_true", help="print per-resolver elapsed time, RSS and process peak RSS")
     a = ap.parse_args()
     t0 = time.time()
     ctx = load(a.phase, a.dfrom, a.dto)
     print(f"loaded {a.phase}: {ctx.bank.height:,} bank lines, {ctx.items.height:,} items ({time.time() - t0:.1f}s)")
-    sub = run(ctx)
+    sub = run(ctx, safe=a.safe, profile=a.profile)
     errs = validate(sub, ctx)
     print("VALIDATION:", "OK" if not errs else errs)
+    if errs:
+        raise SystemExit(1)
     if a.score and ctx.golden is not None:
         from .score import score
         score(sub, ctx.golden)
