@@ -117,9 +117,25 @@ def _expected(ctx: Ctx, cl: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([inst.with_columns(pl.col("k").cast(pl.Int64), pl.col("n").cast(pl.Int32)), ret, adv], how="vertical_relaxed")
 
 
+PHASE_ORDER = ("sample", "train", "live", "final")
+
+
+def _clauses_upto(phase: str) -> pl.DataFrame | None:
+    """Clauses of this phase's PDFs and of every EARLIER phase: an invoice still open at the phase start (open_items_at_start)
+    keeps the clause printed on its PDF, and that PDF sits in the folder of the phase in which it was issued. Never reads a
+    later phase."""
+    if phase not in PHASE_ORDER:
+        return parse_phase(phase)
+    parts = [x for x in (parse_phase(ph) for ph in PHASE_ORDER[1:PHASE_ORDER.index(phase) + 1] if ph != "sample" or phase == "sample")
+             if x is not None and x.height]
+    if not parts:
+        return None
+    return pl.concat(parts, how="vertical_relaxed").unique(["entity", "document_number", "kind"], keep="last", maintain_order=True)
+
+
 def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     from .ar_exact import _names
-    cl = parse_phase(ctx.phase)
+    cl = _clauses_upto(ctx.phase)
     if cl is None or cl.height == 0:
         return empty_rows()
     exp = _expected(ctx, cl)
@@ -178,7 +194,7 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 
 def replaced_invoices(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     """A receipt citing a cancelled invoice X settles the replacement invoice (exact amount)."""
-    cl = parse_phase(ctx.phase)
+    cl = _clauses_upto(ctx.phase)
     if cl is None or cl.height == 0:
         return empty_rows()
     rp = cl.filter(pl.col("kind") == "REPL").select("entity", norm_expr("document_number").alias("docnorm"), norm_expr("replaces").alias("old"))
