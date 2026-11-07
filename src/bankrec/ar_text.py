@@ -25,6 +25,7 @@ import pandas as pd
 import polars as pl
 
 from .data import PQ, Ctx
+from .ap_bulk import bulk_mixed_runs
 from .deterministic import ROWS_SCHEMA, empty_rows
 
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -65,6 +66,9 @@ def _items(ctx: Ctx, window_start: str) -> pd.DataFrame:
         g = pd.read_parquet(gp, columns=["bank_txn_id", "item_id", "amount", "exception"])
         b = pd.read_parquet(bp, columns=["bank_txn_id", "booking_date"])
         it["open_cents"] = train_opening(it, g, b.set_index("bank_txn_id").booking_date, window_start)
+        # never above what the pipeline still has open (window opening, and earlier resolvers with BANKREC_LEDGER=1)
+        if os.environ.get("BANKREC_AR_TEXT_SEED", "1") == "1":
+            it["open_cents"] = np.minimum(it["open_cents"].to_numpy(), cents(it.open_amount))
     else:
         it["open_cents"] = cents(it.open_amount)
     it.loc[cancelled_mask(it), "open_cents"] = 0
@@ -101,11 +105,13 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     items = _items(ctx, start)
     store = ItemStore(items)
     cu, su = ctx.customers.to_pandas().fillna(""), ctx.suppliers.to_pandas().fillna("")
-    matcher = CustomerMatcher(store, PartyResolver(cu, su), _entity_scope(ctx), cfg, terms=ctx.terms.to_pandas().fillna(""))
+    matcher = CustomerMatcher(store, PartyResolver(cu, su), _entity_scope(ctx), cfg, terms=ctx.terms.to_pandas().fillna(""),
+                              fx=ctx.fx.to_pandas() if ctx.fx is not None else None)
     ledger = _Ledger(items.open_cents.to_numpy())
     STATE.update(matcher=matcher, store=store, ledger=ledger)
     cols = ["bank_txn_id", "entity", "amount", "currency", "orig_amount", "orig_currency", "text", "ref1", "ref2",
-            "remittance_info", "end_to_end_id", "counterparty_name", "counterparty_account", "booking_date"]
+            "remittance_info", "end_to_end_id", "counterparty_name", "counterparty_account", "booking_date",
+            "bank_code", "statement_format"]
     df = lines.select([pl.col(c).fill_null("") for c in cols]).sort(["booking_date", "bank_txn_id"]).to_pandas()
     out = {k: [] for k in ROWS_SCHEMA}
     for t in df.itertuples(index=False):
@@ -116,7 +122,8 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         for a in p.allocations:
             i = store.pos[a["item_id"]]
             c = int(round(a["amount"] * 100))
-            if c <= 0 or c > abs(ledger.open(i)) or i in idx:
+            dup = a["exception"] == "DUPLICATE_PAYMENT"      # pays an item already settled: leaves the balance
+            if c <= 0 or (not dup and c > abs(ledger.open(i))) or i in idx:
                 ok = False
                 break
             idx.append(i)
@@ -124,14 +131,18 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
             continue
         for a, i in zip(p.allocations, idx):
             c = int(round(a["amount"] * 100))
-            ledger.o[i] -= c if ledger.o[i] > 0 else -c
+            if a["exception"] != "DUPLICATE_PAYMENT":
+                ledger.o[i] -= c if ledger.o[i] > 0 else -c
             out["bank_txn_id"].append(t.bank_txn_id)
             out["item_id"].append(a["item_id"])
             out["amount"].append(round(c / 100, 2))
             out["category"].append(None)
             out["exception"].append(a["exception"])
             out["module"].append(f"ar_{p.match_method}")
+        matcher.record(p, int(round(abs(float(t.amount)) * 100)), pd.Timestamp(t.booking_date).toordinal())
     return pl.DataFrame(out, schema=ROWS_SCHEMA)
 
 
-RESOLVERS = [ar_text]
+# ap_bulk runs just before ar_text through this list, so it is active with the default BANKREC_ORDER and no pipeline change.
+# If `ap_bulk` is also added to BANKREC_ORDER the second copy claims nothing (lines it owns are no longer pending).
+RESOLVERS = [bulk_mixed_runs, ar_text]

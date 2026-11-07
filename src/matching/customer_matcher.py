@@ -15,6 +15,9 @@ Decision order (each step only fires on an exact cent match unless stated):
 """
 from __future__ import annotations
 
+import bisect
+import re
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -41,6 +44,20 @@ class ItemCandidate:
     amount_score: float = 0.0
     date_score: float = 0.0
     evidence: dict = field(default_factory=dict)
+
+
+# charge option written in the text of a foreign transfer ("GASTOS SHA", "CHARGES: BEN", "SHA CHARGES")
+_CHARGE_OPT = re.compile(r"\b(?:GASTOS|CHARGES?|CHGS?)\s*:?\s*(?:SHA|BEN)\b|\b(?:SHA|BEN)\s+CHARGES\b")
+
+
+def _round_units(cents: int) -> bool:
+    """1, 2 or 5 x 10^n whole currency units (1, 2, 5, 10, 20, 50, 100 ...)."""
+    if cents <= 0 or cents % 100:
+        return False
+    u = cents // 100
+    while u % 10 == 0:
+        u //= 10
+    return u in (1, 2, 5)
 
 
 @dataclass
@@ -83,6 +100,10 @@ class ItemStore:
                 self.digits[(e, k.digits)].append(i)
             for t in k.tails:
                 self.tails[(e, t)].append(i)
+            # customers abbreviate a run of invoices to their last six digits ("FA250112467 112647 112745")
+            suf = k.digits[-6:].lstrip("0") if len(k.digits) > 6 else ""
+            if len(suf) >= 5 and suf not in k.tails:
+                self.tails[(e, suf)].append(i)
         if "po" in it:
             self.po = defaultdict(list)
             for i, (e, p) in enumerate(zip(self.entity, it.po.to_numpy())):
@@ -103,7 +124,7 @@ class ItemStore:
 
 class CustomerMatcher:
     def __init__(self, store: ItemStore, resolver: PartyResolver, entity_scope: dict, cfg: dict | None = None,
-                 terms: pd.DataFrame | None = None):
+                 terms: pd.DataFrame | None = None, fx: pd.DataFrame | None = None):
         self.s = store
         # payment_terms code -> (discount basis points, discount days); POLICIES §3 SHORT_DISCOUNT
         self.disc = {}
@@ -113,12 +134,20 @@ class CustomerMatcher:
                 if pct:
                     self.disc[r.code] = (int(round(float(pct) * 100)), int(r.discount_days or 0))
         self.r = resolver
+        self.units_per_eur = {}          # currency -> sorted [(date, units per EUR)] for the 60 EUR bank-charge cap
+        if fx is not None:
+            for r in fx.sort_values("date").itertuples(index=False):
+                self.units_per_eur.setdefault(r.currency, []).append((str(r.date), float(r.units_per_eur)))
         self.scope = entity_scope        # line entity -> set of item entities it may settle
+        self.closed = defaultdict(list)  # party -> [(cash cents, item idx, booking ordinal)] of lines that fully closed one item
         self.cfg = {"use_iban": True, "use_names": True, "use_refs": True, "use_digit_refs": True,
                     "use_subset": True, "use_group": True, "use_month": True, "partial_hint": True,
                     "fx": True, "max_pool": 60, "node_budget": 20000, "min_party_score": 0.55,
                     "top_parties": 8, "use_discount": True, "use_withholding": True, "grace_days": 3,
-                    "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False}
+                    "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False,
+                    "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0,
+                    "use_duplicates": True, "duplicate_days": 31,
+                    "use_overpayment": True, "over_max_pct": 10.0}
         if cfg:
             self.cfg.update(cfg)
 
@@ -180,6 +209,88 @@ class CustomerMatcher:
             else:
                 vals.append(int(v)); excs.append("*")
         return vals, excs
+
+    # ------------------------------------------------------------------ bank charges (POLICIES §3)
+    XBORDER_CODES = ("PMNT/RCDT/XBCT",)
+
+    @staticmethod
+    def _cross_border(line) -> bool:
+        """Cross-border transfer evidence: camt XBCT, Norma 43 'transferencias en divisa' (code 13), or SHA/BEN charge
+        options in the text. A shortfall on any other line is not treated as bank charges."""
+        code = (getattr(line, "bank_code", "") or "").strip()
+        if code in CustomerMatcher.XBORDER_CODES or (getattr(line, "statement_format", "") == "n43" and code == "13"):
+            return True
+        return bool(_CHARGE_OPT.search(" ".join((line.text, line.remittance_info))))
+
+    def _cap_cents(self, cur, day):
+        """60 EUR equivalent in `cur` cents at the last reference rate on or before `day`."""
+        cap = self.cfg["charges_cap_eur"]
+        if cur != "EUR":
+            rates = self.units_per_eur.get(cur)
+            if not rates:
+                return 0
+            k = bisect.bisect_right(rates, (day, float("inf"))) - 1
+            cap *= rates[max(k, 0)][1]
+        return int(cap * 100)
+
+    def _bank_charges(self, target, cur, side, entities, parties, strong_refs, ledger, day):
+        """Single open invoice of the payer, fully cleared, with 0 < open - cash <= min(60 EUR eq., 2 % of open).
+        Unique over the candidate payers (or over the strongly referenced items when there are some)."""
+        s, cfg = self.s, self.cfg
+        cap = self._cap_cents(cur, day)
+        pool = strong_refs or [i for p in parties[: cfg["top_parties"]] for i in s.by_party.get(p, ())]
+        hits = set()
+        for i in pool:
+            o = ledger.open(i)
+            if s.side[i] != side or s.currency[i] != cur or s.entity[i] not in entities or s.sign[i] < 0 or o <= 0:
+                continue
+            short = o - target
+            if 0 < short <= min(cap, o * cfg["charges_cap_pct"] / 100.0):
+                hits.add(i)
+        return next(iter(hits)) if len(hits) == 1 else None
+
+    # ------------------------------------------------------------------ overpayments (POLICIES §3)
+    def _overpayment(self, target, cur, side, entities, parties, strong_refs, ledger):
+        """Single open invoice of the payer (or the single strongly referenced one) paid with a little more than its open
+        amount: 0 < cash - open <= over_max_pct % of open, and the excess is a whole number of currency units or exactly
+        that percentage (a round top-up: 1, 2 or 5 times a power of ten in currency units). Unique, otherwise abstain. Amount = open amount (the excess stays on account)."""
+        s, cfg = self.s, self.cfg
+        pool = strong_refs or [i for p in parties[: cfg["top_parties"]] for i in s.by_party.get(p, ())]
+        hits = set()
+        for i in pool:
+            o = ledger.open(i)
+            if s.side[i] != side or s.currency[i] != cur or s.entity[i] not in entities or s.sign[i] < 0 or o <= 0:
+                continue
+            ex = target - o
+            if 0 < ex <= o * cfg["over_max_pct"] / 100.0 and (_round_units(ex) or ex == (o * int(cfg["over_max_pct"]) + 50) // 100):
+                hits.add(i)
+        return next(iter(hits)) if len(hits) == 1 else None
+
+    # ------------------------------------------------------------------ duplicate payments (POLICIES §3)
+    def record(self, proposal, cash_cents, booking_ord):
+        """Called by the caller after it accepted a proposal: remember single-item full settlements by the exact cash."""
+        al = proposal.allocations
+        if len(al) == 1 and al[0]["exception"] == "" and int(round(al[0]["amount"] * 100)) == cash_cents:
+            i = self.s.pos[al[0]["item_id"]]
+            self.closed[self.s.party[i]].append((cash_cents, i, booking_ord))
+
+    def _duplicate(self, target, parties, ledger, bord):
+        """The same payer paid exactly this cash for one item it had already settled in full within `duplicate_days`,
+        and none of its open items has that amount: unique such item -> DUPLICATE_PAYMENT."""
+        hits = set()
+        for p in parties[: self.cfg["top_parties"]]:
+            for c, i, d in self.closed.get(p, ()):
+                if c == target and 0 < bord - d <= self.cfg["duplicate_days"] and ledger.open(i) == 0:
+                    hits.add(i)
+        return next(iter(hits)) if len(hits) == 1 else None
+
+    def _open_with_amount(self, target, cur, side, entities, parties, ledger):
+        s = self.s
+        for p in parties[: self.cfg["top_parties"]]:
+            for i in s.by_party.get(p, ()):
+                if s.side[i] == side and s.currency[i] == cur and s.entity[i] in entities and s.sign[i] * ledger.open(i) == target:
+                    return True
+        return False
 
     # ------------------------------------------------------------------ main
     def match(self, line, ledger) -> MatchProposal:
@@ -244,6 +355,15 @@ class CustomerMatcher:
                     parties.append(c.party_id)
         month = service_month(blob) if cfg["use_month"] else None
 
+        # 2b. a repeat of an earlier full payment of one invoice, with nothing else open at that amount
+        if cfg["use_duplicates"] and side == "AR" and not fx and parties and not strong_refs \
+                and not self._open_with_amount(target, cur, side, entities, parties, ledger):
+            i = self._duplicate(target, parties, ledger, bord)
+            if i is not None:
+                a = {"item_id": s.item_id[i], "amount": target / 100.0, "exception": "DUPLICATE_PAYMENT",
+                     "source": "duplicate", "confidence": 0.8}
+                return MatchProposal(tid, s.party[i], "duplicate", 0.8, [], [a], False, ev)
+
         if cfg["use_subset"]:
             for mode, fn in modes:
                 for pid in parties[: cfg["top_parties"] + 1]:
@@ -263,6 +383,22 @@ class CustomerMatcher:
                         if res:
                             idxs, conf, ambiguous, changed = res
                             return MatchProposal(tid, root, "group_subset", conf * 0.9, [], alloc(idxs, "group_subset", conf * 0.9), False, ev)
+
+        # 3b. cross-border transfer short by an intermediary bank fee -> SHORT_BANK_CHARGES, item fully cleared
+        if cfg["use_bank_charges"] and side == "AR" and not fx and self._cross_border(line):
+            i = self._bank_charges(target, cur, side, entities, parties, strong_refs, ledger, str(line.booking_date)[:10])
+            if i is not None:
+                a = {"item_id": s.item_id[i], "amount": abs(ledger.open(i)) / 100.0, "exception": "SHORT_BANK_CHARGES",
+                     "source": "bank_charges", "confidence": 0.85}
+                return MatchProposal(tid, s.party[i], "bank_charges", 0.85, [], [a], False, ev)
+
+        # 3c. a round top-up over one invoice -> OVERPAYMENT, item fully cleared at its open amount
+        if cfg["use_overpayment"] and side == "AR" and not fx:
+            i = self._overpayment(target, cur, side, entities, parties, strong_refs, ledger)
+            if i is not None:
+                a = {"item_id": s.item_id[i], "amount": abs(ledger.open(i)) / 100.0, "exception": "OVERPAYMENT",
+                     "source": "overpayment", "confidence": 0.8}
+                return MatchProposal(tid, s.party[i], "overpayment", 0.8, [], [a], False, ev)
 
         # 4. partial hint on a single strongly referenced item
         if cfg["partial_hint"] and len(strong_refs) == 1:
@@ -286,6 +422,11 @@ class CustomerMatcher:
         if not pool:
             return None
         forced = [i for i in pool if refs.get(i, 0) >= 1.0]
+        # abbreviated citations ("FA250112467 112647 112745"): when two or more of this payer's own open items are hit by
+        # digit / tail references, they anchor the search and only the residual is searched
+        weak = [i for i in pool if 0 < refs.get(i, 0) < 1.0]
+        if cfg.get("weak_anchors", True) and len(forced) + len(weak) >= 2 and weak:
+            forced = forced + weak
         # preference order: referenced first, then service-month match, then oldest (FIFO)
         if month:
             y, m = month
