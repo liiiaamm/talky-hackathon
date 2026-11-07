@@ -26,6 +26,10 @@ CHARGES_MAX_PCT = 0.02
 CHARGES_MIN = 0.50                # below this a shortfall is rounding, not a fee (keeps 1-cent cases out)
 # "cross-border" evidence (both required): payer's country differs from the entity's country AND the bank marks the line as a
 # cross-border / foreign-currency transfer or shows a charges field. ISO 20022 sub-family XBCT, SWIFT :86: /CHGS/, bank wording.
+# Measured on TRAIN: payers in SEPA countries outside the euro area (CH, PL, GB…) do carry intermediary charges, so the
+# effective rule is "payer outside the euro area", not the literal SEPA list. Euro-area membership is public knowledge.
+EURO_AREA = {"AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK",
+             "AD", "MC", "SM", "VA", "ME", "XK"}
 CROSS_BORDER_CODES = ("XBCT",)
 CROSS_BORDER_TEXT = ("/CHGS/", "EN DIV", "INTERNACIONAL", "INTERNATIONAL", "ESTERO", "ETRANGER", "ÉTRANGER", "AUSLAND", "WIRE", "SWIFT")
 # Arithmetic first (POLICIES §3): a shortfall that equals the invoice's early-payment discount or a withholding rate is that,
@@ -183,7 +187,7 @@ def bank_charges(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     marker = pl.any_horizontal([pl.col("alltext").str.to_uppercase().str.contains(m, literal=True) for m in CROSS_BORDER_TEXT]
                                + [pl.col("bank_code").fill_null("").str.contains(m, literal=True) for m in CROSS_BORDER_CODES])
     c = c.filter((pl.col("doc") | pl.col("name") | pl.col("iban_ok"))
-                 & (pl.col("payer_country") != pl.col("entity_country")) & marker)
+                 & (pl.col("payer_country") != pl.col("entity_country")) & ~pl.col("payer_country").is_in(list(EURO_AREA)) & marker)
     if not c.height:
         return empty_rows()
     c = c.join(_explained_by_open(ctx, c), on="bank_txn_id", how="anti")      # an exact open match exists -> not a fee
