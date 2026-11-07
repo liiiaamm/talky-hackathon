@@ -97,8 +97,18 @@ def _rows(df: pl.DataFrame, cat: pl.Expr, module: str, exc: pl.Expr | None = Non
                      exc.alias("exception"), pl.lit(module).alias("module"))
 
 
+def _model_missing(ctx: Ctx) -> bool:
+    """Without the model every non-item line silently falls to the fallback (BANK_FEES/UNIDENTIFIED): never allowed in FINAL."""
+    if os.path.exists(MODEL):
+        return False
+    if ctx.phase == "final":
+        raise FileNotFoundError(f"category model not found: {MODEL} (set BANKREC_CAT_MODEL or train with --train --all)")
+    print(f"WARNING: category model not found ({MODEL}); category resolvers skipped", flush=True)
+    return True
+
+
 def strong_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
-    if not os.path.exists(MODEL) or pending.height == 0:
+    if _model_missing(ctx) or pending.height == 0:
         return pending.head(0).select("bank_txn_id")
     pr = _predict(ctx, pending)
     _cache["last_pred"] = pr
@@ -107,7 +117,7 @@ def strong_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 
 
 def all_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
-    if not os.path.exists(MODEL) or pending.height == 0:
+    if _model_missing(ctx) or pending.height == 0:
         return pending.head(0).select("bank_txn_id")
     pr = _predict(ctx, pending)
     cat = (pl.when(~pl.col("pred").is_in(["ITEM"])).then(pl.col("pred"))

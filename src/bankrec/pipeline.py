@@ -183,6 +183,31 @@ def validate(sub: pl.DataFrame, ctx: Ctx) -> list[str]:
     return errs
 
 
+ITEM_ID_RE = r"^(ARI|ARC|API|APC)-\d{4}-\d{7}$"
+
+
+def repair(sub: pl.DataFrame, ctx: Ctx) -> pl.DataFrame:
+    """FINAL safety net (--repair): make an invalid submission valid by dropping only the offending rows.
+    Item rows win over no-item rows; bank lines left without any row get the fallback row. Prints what it changed."""
+    n0 = sub.height
+    sub = sub.join(ctx.bank.select("bank_txn_id"), on="bank_txn_id", how="semi")
+    has_item = pl.col("item_id").is_not_null() & (pl.col("item_id") != "")
+    it = sub.filter(has_item)
+    good = it["item_id"].str.contains(ITEM_ID_RE) & it["amount"].is_not_null() & it["amount"].is_finite() & (it["amount"] >= 0)
+    it = it.filter(good).unique(["bank_txn_id", "item_id"], keep="first", maintain_order=True).with_columns(
+        pl.lit(None, pl.Utf8).alias("category"))
+    noit = sub.filter(~has_item).join(it.select("bank_txn_id"), on="bank_txn_id", how="anti").unique(
+        "bank_txn_id", keep="first", maintain_order=True).with_columns(pl.lit(None, pl.Float64).alias("amount"))
+    noit = noit.filter(pl.col("category").is_in(ctx.categories))
+    out = pl.concat([it, noit], how="vertical_relaxed").with_columns(
+        pl.when(pl.col("exception").fill_null("").is_in(EXCEPTIONS)).then(pl.col("exception")).otherwise(pl.lit("")).alias("exception"))
+    missing = ctx.bank.join(out.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+    out = pl.concat([out, fallback(ctx, missing)], how="vertical_relaxed")
+    print(f"REPAIR: {n0:,} -> {out.height:,} rows; dropped {n0 - (out.height - missing.height):,}, "
+          f"fallback for {missing.height:,} bank lines", flush=True)
+    return out
+
+
 def write(sub: pl.DataFrame, path: str):
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     df = sub.select(
@@ -209,6 +234,8 @@ def main():
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--safe", action="store_true", help="continue after a failed resolver, with a visible warning")
     ap.add_argument("--profile", action="store_true", help="print per-resolver elapsed time, RSS and process peak RSS")
+    ap.add_argument("--repair", action="store_true",
+                    help="if validation fails, drop the offending rows, give uncovered lines the fallback row, validate again")
     a = ap.parse_args()
     t0 = time.time()
     ctx = load(a.phase, a.dfrom, a.dto)
@@ -216,6 +243,10 @@ def main():
     sub = run(ctx, safe=a.safe, profile=a.profile)
     errs = validate(sub, ctx)
     print("VALIDATION:", "OK" if not errs else errs)
+    if errs and a.repair:
+        sub = repair(sub, ctx)
+        errs = validate(sub, ctx)
+        print("VALIDATION after repair:", "OK" if not errs else errs)
     if errs:
         raise SystemExit(1)
     if a.score and ctx.golden is not None:
