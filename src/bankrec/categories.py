@@ -88,7 +88,8 @@ def _predict(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     best_ni = np.array(nonitem)[P[:, nonitem].argmax(1)]
     return pending.select("bank_txn_id", "is_credit").with_columns(
         pl.Series("pred", classes[best]), pl.Series("p", P.max(1)), pl.Series("pred_ni", classes[best_ni]),
-        pl.Series("p_ni", P[np.arange(len(P)), best_ni]))
+        pl.Series("p_ni", P[np.arange(len(P)), best_ni]),
+        pl.Series("p_unid", P[:, list(classes).index("UNIDENTIFIED")] if "UNIDENTIFIED" in classes else np.zeros(len(P))))
 
 
 def _rows(df: pl.DataFrame, cat: pl.Expr, module: str, exc: pl.Expr | None = None) -> pl.DataFrame:
@@ -106,6 +107,9 @@ def strong_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return _rows(sel, pl.col("pred"), "cat_strong")
 
 
+UNID_P = float(os.environ.get("BANKREC_UNID_P", "0.10"))   # UNIDENTIFIED exception threshold on cat_rest credits
+
+
 def all_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     if not os.path.exists(MODEL) or pending.height == 0:
         return pending.head(0).select("bank_txn_id")
@@ -115,7 +119,10 @@ def all_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
            .otherwise(pl.col("pred_ni")))
     # UNIDENTIFIED exception only when the model believes it (otherwise the line is a missed item anyway: an UNIDENTIFIED
     # exception there is a false positive in the exception macro-F1)
-    exc = pl.when((cat == "UNIDENTIFIED") & ((pl.col("pred") == "UNIDENTIFIED") | (os.environ.get("BANKREC_UNID_ALL") == "1")))\
+    # ... or when it gives UNIDENTIFIED a fair chance: P >= UNID_P recovers ~640 true UNIDENTIFIED per half for ~170 false
+    # flags on lines that are wrong anyway (missed items). Replay: H1 93.58 -> 93.80, out-of-sample H2 92.92 -> 93.14.
+    exc = pl.when((cat == "UNIDENTIFIED") & ((pl.col("pred") == "UNIDENTIFIED") | (pl.col("p_unid") >= UNID_P)
+                                             | (os.environ.get("BANKREC_UNID_ALL") == "1")))\
         .then(pl.lit("UNIDENTIFIED")).otherwise(pl.lit(""))
     return _rows(pr, cat, "cat_rest", exc)
 
