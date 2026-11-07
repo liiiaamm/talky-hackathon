@@ -342,11 +342,30 @@ def bank_charges(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 # =====================================================================================================================
 # DUPLICATE_PAYMENT (late)
 # =====================================================================================================================
+def _prior_full_payments(ctx: Ctx) -> pl.DataFrame:
+    """item_id, p_date, p_cash of earlier ACCEPTED lines that paid one item in full by themselves: the line's only item row,
+    with amount = the line's cash. Source: the rows accepted so far in this run (pipeline.run exposes them as ctx._claimed)."""
+    empty = pl.DataFrame(schema={"item_id": pl.Utf8, "p_date": pl.Utf8, "p_cash": pl.Float64})
+    prev = [r for r in ctx.__dict__.get("_claimed", []) if r.height]
+    if not prev:
+        return empty
+    rows = pl.concat([r.select("bank_txn_id", "item_id", pl.col("amount").cast(pl.Float64)) for r in prev], how="vertical_relaxed").filter(
+        pl.col("item_id").is_not_null() & (pl.col("item_id") != ""))
+    single = rows.group_by("bank_txn_id").agg(pl.len().alias("_n"), pl.col("item_id").first(), pl.col("amount").first()).filter(
+        pl.col("_n") == 1)
+    bank = ctx.bank.select("bank_txn_id", pl.col("booking_date").alias("p_date"), pl.col("abs_amt").round(2).alias("p_cash"))
+    return single.join(bank, on="bank_txn_id").filter((pl.col("amount") - pl.col("p_cash")).abs() <= AMT_TOL).select(
+        "item_id", "p_date", "p_cash")
+
+
 def duplicates(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
-    """POLICIES §3: an item already settled is paid again (customer pays twice / we pay a supplier twice). A pending line equal
-    to the full total of a settled item of the evidenced party → that item, amount = what was paid again (= the total).
-    Settled = known item no longer open (ledger), or an exact-amount item that an earlier line took (see module doc)."""
+    """POLICIES §3: an item already settled is paid again (customer pays twice / we pay a supplier twice); the LATER line gets
+    the exception. A pending line equal to the full total of an item of the evidenced party that the run already considers
+    settled (ledger) or that an earlier same-amount line of that party took → that item, amount = the total. The code is
+    DUPLICATE_PAYMENT only when an earlier accepted line paid that same item in full by itself (_prior_full_payments);
+    otherwise the item was closed by some other claim and this line is its payment, with no exception."""
     out = []
+    prior = _prior_full_payments(ctx)
     claimed = ctx.bank.join(pending.select("bank_txn_id"), on="bank_txn_id", how="anti")   # lines earlier resolvers explained
     for credit, kind, side in ((True, "ARI", "AR"), (False, "API", "AP")):
         lines = _lines(ctx, pending, credit)
@@ -388,10 +407,15 @@ def duplicates(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         n = c.group_by("bank_txn_id").agg(pl.col("party_id").n_unique().alias("_np"))
         c = c.join(n.filter(pl.col("_np") == 1), on="bank_txn_id", how="semi")
         c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique("item_id", keep="first", maintain_order=True)
-        out.append(c.select("bank_txn_id", "item_id", pl.col("cash").alias("amount")))
+        # repeat = an earlier accepted line, booked before this one, paid this same item in full with the same cash
+        rep = c.select("bank_txn_id", "item_id", "booking_date", "cash").join(prior, on="item_id").filter(
+            (pl.col("p_date") < pl.col("booking_date")) & ((pl.col("p_cash") - pl.col("cash")).abs() <= AMT_TOL)).select(
+            "bank_txn_id", "item_id").unique().with_columns(pl.lit(True).alias("_rep"))
+        c = c.join(rep, on=["bank_txn_id", "item_id"], how="left").with_columns(pl.col("_rep").fill_null(False))
+        out.append(c.select("bank_txn_id", "item_id", pl.col("cash").alias("amount"), "_rep"))
     if not out:
         return empty_rows()
-    return mk_rows(pl.concat(out), "c_duplicate", "DUPLICATE_PAYMENT")
+    return mk_rows(pl.concat(out), "c_duplicate", pl.when(pl.col("_rep")).then(pl.lit("DUPLICATE_PAYMENT")).otherwise(pl.lit("")))
 
 
 # =====================================================================================================================
