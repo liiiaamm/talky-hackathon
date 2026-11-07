@@ -51,6 +51,21 @@ class ItemCandidate:
 _CHARGE_OPT = re.compile(r"\b(?:GASTOS|CHARGES?|CHGS?)\s*:?\s*(?:SHA|BEN)\b|\b(?:SHA|BEN)\s+CHARGES\b")
 
 
+def _sum_of_two_plus(vals: list[int], target: int, max_pool: int = 40, max_cents: int = 10_000_000) -> bool:
+    """True when some subset of 2+ of `vals` (cents) adds up to `target` exactly (dynamic programming over the amount)."""
+    import numpy as np
+    vals = [v for v in vals if 0 < v <= target]
+    if len(vals) < 2 or len(vals) > max_pool or target > max_cents or sum(vals) < target:
+        return False
+    one = np.zeros(target + 1, bool)
+    two = np.zeros(target + 1, bool)
+    for v in vals:
+        add_two = two[:target + 1 - v] | one[:target + 1 - v]
+        two[v:] |= add_two
+        one[v] = True
+    return bool(two[target])
+
+
 def _round_units(cents: int) -> bool:
     """1, 2 or 5 x 10^n whole currency units (1, 2, 5, 10, 20, 50, 100 ...)."""
     if cents <= 0 or cents % 100:
@@ -265,7 +280,13 @@ class CustomerMatcher:
             short = o - target
             if 0 < short <= min(cap, o * cfg["charges_cap_pct"] / 100.0):
                 hits.add(i)
-        return next(iter(hits)) if len(hits) == 1 else None
+        if len(hits) != 1:
+            return None
+        # not a fee when 2+ open invoices of that payer add up to the cash exactly: that is a multi-invoice payment
+        h = next(iter(hits))
+        vals = [int(ledger.open(j)) for j in s.by_party.get(s.party[h], ())
+                if s.side[j] == side and s.currency[j] == cur and s.entity[j] in entities and s.sign[j] > 0 and ledger.open(j) > 0]
+        return None if _sum_of_two_plus(vals, int(target)) else h
 
     # ------------------------------------------------------------------ overpayments (POLICIES §3)
     def _overpayment(self, target, cur, side, entities, parties, strong_refs, ledger):
