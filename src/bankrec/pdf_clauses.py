@@ -101,16 +101,19 @@ def _expected(ctx: Ctx, cl: pl.DataFrame) -> pl.DataFrame:
     items = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "issue_date")
     cl = cl.with_columns(norm_expr("document_number").alias("docnorm")).join(items, on=["entity", "docnorm"])
     inst = cl.filter((pl.col("kind") == "INST") & (pl.col("amounts").list.len() == pl.col("days").list.len())).with_columns(
-        pl.int_ranges(1, pl.col("amounts").list.len() + 1).alias("k"), pl.col("amounts").list.len().cast(pl.Int32).alias("n")).explode(
-        ["amounts", "days", "k"]).select("item_id", pl.col("amounts").round(2).alias("exp"), pl.lit("INST").alias("kind"), "k", "n",
-                                         (pl.col("issue_date").str.to_date() + pl.duration(days=pl.col("days"))).alias("due"))
+        pl.int_ranges(1, pl.col("amounts").list.len() + 1).alias("k"), pl.col("amounts").list.len().cast(pl.Int32).alias("n"),
+        pl.col("amounts").list.eval(pl.element().cum_sum()).alias("cum")).explode(
+        ["amounts", "days", "k", "cum"]).select("item_id", pl.col("amounts").round(2).alias("exp"), pl.lit("INST").alias("kind"), "k", "n",
+                                                (pl.col("issue_date").str.to_date() + pl.duration(days=pl.col("days"))).alias("due"),
+                                                (pl.col("cum") - pl.col("amounts")).round(2).alias("cum_before"))   # paid by instalments 1..k-1
     ret = cl.filter(pl.col("kind") == "RET")
     ret = pl.concat([
         ret.select("item_id", pl.col("amounts").list.get(0).round(2).alias("exp"), pl.lit("RET1").alias("kind")),
         ret.select("item_id", pl.col("amounts").list.get(1).round(2).alias("exp"), pl.lit("RET2").alias("kind"))]).with_columns(
-        pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"))
+        pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"), pl.lit(None, pl.Float64).alias("cum_before"))
     adv = cl.filter(pl.col("kind") == "ADV").select("item_id", pl.col("amounts").list.get(0).round(2).alias("exp"), pl.lit("ADV").alias("kind"),
-                                                    pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"))
+                                                    pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"),
+                                                    pl.lit(None, pl.Float64).alias("cum_before"))
     return pl.concat([inst.with_columns(pl.col("k").cast(pl.Int64), pl.col("n").cast(pl.Int32)), ret, adv], how="vertical_relaxed")
 
 
@@ -121,7 +124,7 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         return empty_rows()
     exp = _expected(ctx, cl)
     open_ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "party_id", "currency", "docnorm", "issue_date",
-                                                                      norm_expr("party_name").str.slice(0, 10).alias("k0"))
+                                                                      "total", "open_amount", norm_expr("party_name").str.slice(0, 10).alias("k0"))
     exp = exp.join(open_ari, on="item_id")
     lines = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id").select(
         "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("cash"),
@@ -143,9 +146,14 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         (has("k0") | has("k1") | has("k2") | (pl.col("cp_iban").is_not_null() & (pl.col("cp_iban") == pl.col("iban"))).fill_null(False)
          | ((digits.str.len_chars() >= 6) & pl.col("tnorm").str.contains(digits.str.slice(-6), literal=True))).alias("ev"))
     c = c.filter(pl.col("doc") | pl.col("ev")).with_columns(
-        (pl.col("booking_date").str.to_date() - pl.col("due")).dt.total_days().abs().fill_null(0).alias("lag"))
-    # instalment number: the one whose due date is closest to the booking date (per line & item)
-    c = c.sort(["doc", "lag"], descending=[True, False]).unique(["bank_txn_id", "item_id"], keep="first")
+        (pl.col("booking_date").str.to_date() - pl.col("due")).dt.total_days().abs().fill_null(0).alias("lag"),
+        # instalment number from the balance: when the balance shows earlier instalments were paid (total − open > 0), the
+        # right k is the one whose previous instalments sum to exactly that. An untouched balance proves nothing (it may just
+        # be unknown: ledger off, no opening balances), so it never overrides the due-date proximity below.
+        ((pl.col("kind") != "INST") | (((pl.col("total") - pl.col("open_amount")) > 0.011)
+                                        & ((pl.col("total") - pl.col("open_amount") - pl.col("cum_before")).abs() <= 0.011))).alias("khit"))
+    # instalment number: balance-consistent first, then cited doc, then the instalment whose due date is closest to the booking date
+    c = c.sort(["khit", "doc", "lag"], descending=[True, True, False]).unique(["bank_txn_id", "item_id"], keep="first")
     c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind", "k"], keep="first", maintain_order=True)
     exc = (pl.when(pl.col("kind") == "INST").then(pl.when(pl.col("k") < pl.col("n")).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
            .when(pl.col("kind").is_in(["RET1", "ADV"])).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
