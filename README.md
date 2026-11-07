@@ -1,7 +1,7 @@
 # Token Co. | Intelligent Bank Reconciliation
 
-Talky × Anthropic "Close the Books" hackathon. Every bank movement of a multi-entity group (17 legal entities in LIVE, a new
-South African subsidiary in FINAL) must be matched to the invoices it settles, or explained with a category, and every
+Talky × Anthropic "Close the Books" hackathon. Every bank movement of a multi-entity group (17 legal entities in LIVE; the organisers'
+POLICIES announce a new South African subsidiary, ZA01 / ZAR, for FINAL) must be matched to the invoices it settles, or explained with a category, and every
 difference must carry the right accounting exception.
 
 Our pipeline reads half a year of bank statements, invoices, credit notes, payment files, remittance advices and invoice PDFs,
@@ -92,8 +92,9 @@ Both are trained offline on TRAIN labels only (features use history strictly bef
 pinned `.joblib` files, checked by SHA-256. Everything else is deterministic rules and bounded search (Aho-Corasick name and
 document matching, exact subset sums).
 
-**No LLM runs at inference.** Claude Code was our development tool: writing and reviewing code, running read-only audits and
-coordinating experiments. The submitted pipeline makes no model API calls.
+**At inference the pipeline runs only these two pinned ML models; no LLM is called.** (No LLM client library is imported
+anywhere in `src/`.) Claude Code was our development tool: writing and reviewing code, running read-only audits and
+coordinating experiments.
 
 ## Results (LIVE, not FINAL)
 
@@ -141,7 +142,7 @@ over-allocation reports, a time-separated validation protocol with no future doc
 
 **Robustness audit verdict: CONDITIONAL GO.** Controlled stress tests showed deterministic output (identical across repeated
 and row-shuffled runs on the sample phase), clean failure on missing columns, and correct behaviour for a new entity with a
-new currency and renamed customers. The condition is that FINAL inputs pass the data checks, because some failures are silent:
+new currency and renamed customers (synthetic test: FINAL's actual ZA01 data has not been seen yet). The condition is that FINAL inputs pass the data checks, because some failures are silent:
 
 - **Unfamiliar remittance layouts**: an advice the parser cannot read is skipped. Remittance-matched lines carry a large
   share of the score (on 2024-H2, losing 10 % of them would cost about 1.4 points). FINAL introduces a new layout.

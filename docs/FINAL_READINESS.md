@@ -28,7 +28,8 @@ bash tools/prepare_final.sh --skip-train 2>&1 | tee out/final_run.log
 `python <path>/final_checks.py "$PWD" final out/final_run.log` (read-only script; kept outside the repo by Jack). It must
 report **0 FAIL**. Check in particular:
 - [ ] `data/final/masters_final/` present and used.
-- [ ] Every bank entity is in `entities.csv`, **including ZA01**; account-id prefix equals the bank entity for every account
+- [ ] Every bank entity is in `entities.csv`, including the anticipated new entity **ZA01** (announced in POLICIES §6; not yet
+      verified on FINAL data); account-id prefix equals the bank entity for every account
       (the pipeline derives the entity from the account-id prefix, e.g. `ZA01-…-ZAR`).
 - [ ] FX rates exist for every non-EUR currency in the phase, **including ZAR**; last FX date ≥ last booking date.
 - [ ] No expected table missing (payment runs, DD batches, cards, cheques, remittance index, PDF index, open items).
