@@ -41,7 +41,7 @@ flowchart LR
   D --> PC[pdf_clauses parser] --> L
   L --> DET[Deterministic joins<br/>DD, cards, cheques, payment runs]
   DET --> SC[Strong categories<br/>TF-IDF + LogReg]
-  SC --> C12[13 ordered resolvers]
+  SC --> C12[15 ordered resolvers]
   C12 --> AC[all_categories<br/>+ UNIDENTIFIED]
   LED[(Shared ledger<br/>open balances)] <--> DET & C12
   AC --> O[CSV output] --> V[Official format validation<br/>+ coverage checks]
@@ -59,9 +59,9 @@ flowchart LR
 - **Validation**: the pipeline validates the output format before writing; `tools/official_check.py` runs the official
   scorer's validator and checks bank-line coverage and over-allocation.
 
-## Thirteen-stage reconciliation pipeline
+## Fifteen-stage reconciliation pipeline
 
-After the deterministic joins and strong categories, thirteen resolvers run in this order (`tools/final_config.sh`):
+After the deterministic joins and strong categories, fifteen resolvers run in this order (`tools/final_config.sh`):
 
 | # | Resolver | What it does |
 |---|---|---|
@@ -78,6 +78,8 @@ After the deterministic joins and strong categories, thirteen resolvers run in t
 | 11 | `ar_due_subset` | Last resort: the unique exact subset of the payer's recently due invoices. |
 | 12 | `c_duplicates` | A line repeating an item that an earlier line already paid in full → `DUPLICATE_PAYMENT` (otherwise allocated with no exception). |
 | 13 | `c_overpayment` | An unexplained receipt that exceeds exactly one open invoice of the evidenced payer by a round top-up, when no combination of open documents explains it exactly → `OVERPAYMENT`. |
+| 14 | `c_ptail` | Unclaimed receipt = one or more invoices paid in full plus exactly one invoice paid at 40 %, 50 % or 60 % (`PARTIAL`); unique solution only, otherwise abstain. |
+| 15 | `c_contig` | Unclaimed receipt = the only contiguous run (>= 2) of the payer's open invoices in due-date order whose sum equals the cash to the cent. |
 
 `all_categories` finally labels every remaining line (`UNIDENTIFIED` gets its exception when the classifier gives it
 probability ≥ 0.20).
@@ -97,21 +99,31 @@ document matching, exact subset sums).
 anywhere in `src/`.) Claude Code was our development tool: writing and reviewing code, running read-only audits and
 coordinating experiments.
 
-## Results (LIVE, not FINAL)
+## Results
 
-Official LIVE submission `s_95f171c55475e5088ca0` (DC7+C, `main` commit `c1e5dff`):
+**Official FINAL: 94.45** (submission `s_4e72952fe59dd2cab5c7`, 15 resolvers, commit `006a2c4`, merged here).
 
-| Metric | Value |
-|---|---|
-| Score | **93.98** (6th of 17 at submission time; previous DC7 candidate 93.80) |
-| Allocation F1 | 0.9372 (precision 0.9883, recall 0.8912) |
-| Transaction accuracy | 0.9565 |
-| Exception macro-F1 | 0.9209 |
-| Bank lines processed | 203,083 (all covered) |
-| Runtime / peak memory | ~181 s / ~23.3 GB (local Mac run) |
+| Metric | FINAL (15 resolvers) | FINAL first submission (13 resolvers) | LIVE (13 resolvers) |
+|---|---|---|---|
+| Score | **94.45** | 94.27 | 93.98 |
+| Allocation F1 | 0.9443 | 0.9428 | 0.9372 |
+| Allocation precision / recall | 0.9884 / 0.9039 | 0.9890 / 0.9008 | 0.9883 / 0.8912 |
+| Transaction accuracy | 0.9624 | 0.9598 | 0.9565 |
+| Exception macro-F1 | 0.9180 | 0.9169 | 0.9209 |
+| Bank lines covered | 220,256 / 220,256 | 220,256 / 220,256 | 203,083 / 203,083 |
+| Output rows | 768,423 | 766,150 | 707,351 |
 
-The +0.18 over DC7 comes almost entirely from exception labelling (OVERPAYMENT, stricter DUPLICATE_PAYMENT); allocation is unchanged.
-Clean, time-separated TRAIN validation of DC7 (before `c_overpayment`): 2025-H1 94.18, 2024-H2 93.89. FINAL scores are revealed after the event.
+Clean, time-separated TRAIN holdouts (official scorer; 2025-H1 with models trained to 2024-12, 2024-H2 with models trained to
+2024-06; remittance advices and PDFs only from the current and earlier phases):
+
+| Pipeline | 2025-H1 | 2024-H2 |
+|---|---|---|
+| DC7 (12 resolvers) | 94.18 | 93.89 |
+| DC7+C (13 resolvers, first FINAL file) | 94.36 | 94.10 |
+| + `c_ptail` | 94.50 | 94.25 |
+| + `c_ptail` + `c_contig` (submitted) | **94.58** | **94.33** |
+
+FINAL run: ~216 s, peak memory ~29.7 GB (local Mac). LIVE (DC7+C): ~181 s / ~23.3 GB.
 
 ## Reproducibility
 
