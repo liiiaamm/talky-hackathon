@@ -56,7 +56,7 @@ propuestas distintas. Tabla por pares de resolvers ("A ok" / "B ok" = cuántas v
 
 ## (b) Suposiciones erróneas encontradas
 
-- "El orden decide mucho": falso con los resolvers actuales. Las propuestas coinciden en el 97 % de las líneas disputables. Las
+- "El orden decide mucho": falso con los resolvers actuales. El 96 % de las líneas con 2 o más propuestas reciben la misma propuesta (72.891 de 75.642). Las
   diferencias entre órdenes que se midieron antes (84,22 frente a 84,63) venían de no tener remittance y pdf_clauses delante y de la
   versión de los módulos de entonces, no de conflictos que queden hoy.
 - "Hace falta un árbitro con modelo": el techo total es +0,21. Un modelo entrenado antes de 2024-07 y validado en dos ventanas no
