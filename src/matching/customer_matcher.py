@@ -26,7 +26,7 @@ import pandas as pd
 
 from .normalize import doc_keys, text_reference_tokens, service_month
 from .party_resolver import PartyResolver
-from .subset_sum import find_subsets
+from .subset_sum import find_subsets, pair_solutions, windowed_solutions
 
 FULL_CLEAR_HINTS = ("FX_DIFFERENCE",)
 
@@ -90,6 +90,7 @@ class ItemStore:
         self.sign = np.where(np.isin(self.kind, ["ARC", "APC"]), -1, 1)
         self.side = np.where(np.isin(self.kind, ["ARI", "ARC"]), "AR", "AP")
         self.pos = {iid: i for i, iid in enumerate(self.item_id)}
+        self.related = it.related_document.to_numpy() if "related_document" in it else np.full(len(it), "", object)
         self.strong = defaultdict(list)       # (entity, key) -> [idx]
         self.digits = defaultdict(list)
         self.tails = defaultdict(list)
@@ -147,7 +148,8 @@ class CustomerMatcher:
                     "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False,
                     "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0,
                     "use_duplicates": True, "duplicate_days": 31,
-                    "use_overpayment": True, "over_max_pct": 10.0}
+                    "use_overpayment": True, "over_max_pct": 10.0,
+                    "use_window": False, "window": 16, "window_max_width": 14, "window_margin": 2, "window_max_pool": 150}
         if cfg:
             self.cfg.update(cfg)
 
@@ -384,6 +386,13 @@ class CustomerMatcher:
                             idxs, conf, ambiguous, changed = res
                             return MatchProposal(tid, root, "group_subset", conf * 0.9, [], alloc(idxs, "group_subset", conf * 0.9), False, ev)
 
+        # 2c. small exact structures over the payer's open items (unique across candidate payers, otherwise abstain)
+        if cfg["use_window"] and side == "AR" and parties and not strong_refs:
+            res = self._window(parties, target, cur, side, entities, ledger)
+            if res:
+                idxs, pid = res
+                return MatchProposal(tid, pid, "window", 0.85, [], alloc(idxs, "window", 0.85), False, ev)
+
         # 3b. cross-border transfer short by an intermediary bank fee -> SHORT_BANK_CHARGES, item fully cleared
         if cfg["use_bank_charges"] and side == "AR" and not fx and self._cross_border(line):
             i = self._bank_charges(target, cur, side, entities, parties, strong_refs, ledger, str(line.booking_date)[:10])
@@ -409,6 +418,49 @@ class CustomerMatcher:
                      "source": "partial_hint", "confidence": 0.5}
                 return MatchProposal(tid, s.party[i], "partial_hint", 0.5, [], [a], False, ev)
         return MatchProposal(tid, parties[0] if parties else None, "abstain", 0.0, [], [], True, ev)
+
+    def _window(self, parties, target, cur, side, entities, ledger):
+        """Exact structures that are unique once the payer is fixed (see subset_sum.windowed_solutions):
+        (a) two open invoices of one payer, (b) the oldest-window set of invoices, netted with at most one credit note
+        whose related invoice is part of the set. Candidates are collected over every plausible payer; a claim needs
+        exactly one distinct solution overall (abstain when two payers or two sets fit)."""
+        s, cfg = self.s, self.cfg
+        found = {}
+        for pid in parties[: cfg["top_parties"] + 1]:
+            pool = [i for i in s.by_party.get(pid, ()) if s.side[i] == side and s.currency[i] == cur
+                    and s.entity[i] in entities and ledger.open(i) != 0]
+            inv = [i for i in pool if s.sign[i] > 0 and ledger.open(i) > 0]
+            cns = [i for i in pool if s.sign[i] < 0][:40]
+            if len(inv) < 2 or len(inv) > cfg["window_max_pool"]:
+                continue
+            iv = [ledger.open(i) for i in inv]
+            for a, b in pair_solutions(iv, target):
+                found[frozenset((inv[a], inv[b]))] = pid
+            if len(found) > 1:
+                return None
+            cv = [abs(ledger.open(i)) for i in cns]
+            sols = windowed_solutions(iv, cv, target, cfg["window"])
+            sols = [x for x in sols if x[0] <= cfg["window_max_width"] + cfg["window_margin"]]
+            if sols:
+                w0 = sols[0][0]
+                if w0 <= cfg["window_max_width"]:
+                    for w, c, sol in sols:
+                        if w > w0 + cfg["window_margin"]:
+                            break
+                        members = [inv[k] for k in sol]
+                        if c is not None:
+                            rel = s.lookup_document(s.entity[cns[c]], s.related[cns[c]]) if s.related[cns[c]] else []
+                            if not any(s.pos[r] in members for r in rel):
+                                found[frozenset(members + [cns[c]])] = None   # fits the amount but not the documents: blocks
+                                continue
+                            members = members + [cns[c]]
+                        found[frozenset(members)] = pid
+            if len(found) > 1:
+                return None
+        if len(found) != 1:
+            return None
+        (members, pid), = found.items()
+        return (sorted(members), pid) if pid is not None else None
 
     def _search(self, members, target, cur, side, entities, refs, month, ledger, fn, mode):
         """Exact search on the open items of `members`. Returns (idxs, confidence, ambiguous, changed) or None.

@@ -51,3 +51,58 @@ def find_subsets(values, target, max_size=60, node_budget=20000, max_solutions=2
         stack.append((k + 1, s, chosen))
         stack.append((k + 1, s + vals[k], chosen + (k,)))
     return sols, exhausted
+
+
+def mitm_all(vals, target, max_solutions=8):
+    """All non-empty subsets (sorted index tuples) of `vals` (<= ~24 positive ints) with sum == target.
+
+    Meet in the middle; stops at `max_solutions`. Used on short windows only, so the 2**(n/2) halves stay tiny."""
+    n = len(vals)
+    h = n // 2
+
+    def halves(v, off):
+        out = [(0, ())]
+        for k, x in enumerate(v):
+            out += [(s + x, t + (off + k,)) for s, t in out]
+        return out
+
+    right = {}
+    for s, t in halves(vals[h:], h):
+        right.setdefault(s, []).append(t)
+    sols = []
+    for s, t in halves(vals[:h], 0):
+        for u in right.get(target - s, ()):
+            if t or u:
+                sols.append(t + u)
+                if len(sols) >= max_solutions:
+                    return sols
+    return sols
+
+
+def pair_solutions(vals, target, max_solutions=8):
+    """Index pairs (i < j) with vals[i] + vals[j] == target (single items are not pairs)."""
+    seen = {}
+    sols = []
+    for j, v in enumerate(vals):
+        for i in seen.get(target - v, ()):
+            sols.append((i, j))
+            if len(sols) >= max_solutions:
+                return sols
+        seen.setdefault(v, []).append(j)
+    return sols
+
+
+def windowed_solutions(inv_vals, cn_vals, target, window=16, max_solutions=8):
+    """Oldest-window search. `inv_vals` are positive open amounts oldest first; `cn_vals` positive credit-note amounts.
+
+    Customers settle from the oldest open invoices with a few skipped, so the set is looked for inside a prefix of the
+    invoices, optionally netted with ONE credit note (target + credit note). Returns [(width, cn_index|None, invoice
+    indices)] sorted by width (index of the newest invoice used + 1)."""
+    iv = inv_vals[:window]
+    out = []
+    for c in [None] + list(range(len(cn_vals))):
+        t = target + (cn_vals[c] if c is not None else 0)
+        for s in mitm_all(iv, t, max_solutions):
+            out.append((max(s) + 1, c, s))
+    out.sort(key=lambda x: (x[0], -1 if x[1] is None else x[1], x[2]))
+    return out
