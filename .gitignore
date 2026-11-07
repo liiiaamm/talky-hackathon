@@ -19,3 +19,16 @@ models/
 # Secrets: HK_TOKEN lives only in an environment variable
 .env
 *.token
+
+# Person B additions (additive): local caches, credentials docs, raw files
+work/
+*.docx
+~$*
+*API Key*
+*.pdf
+*.xlsx
+*.n43
+*.sta
+*.zip
+*.tar.gz
+.DS_Store
