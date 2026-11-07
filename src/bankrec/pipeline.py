@@ -60,9 +60,16 @@ def apply_ledger(ctx: Ctx, rows: pl.DataFrame):
         # fully-cleared exceptions close the item whatever the cash
         .when(pl.col("exception").is_in(["SHORT_DISCOUNT", "SHORT_BANK_CHARGES", "SHORT_WITHHOLDING", "FX_DIFFERENCE", "OVERPAYMENT"]))
         .then(pl.lit(1e15)).otherwise(pl.col("amount")).sum().alias("_d"))
-    items = ctx.items.join(delta, on="item_id", how="left").with_columns(
-        (pl.col("open_amount") - pl.col("_d").fill_null(0.0)).clip(lower_bound=0.0).round(2).alias("open_amount")).drop("_d")
-    ctx.items = items.filter(pl.col("open_amount") > 0.005)
+    # balances live in a full table so a later RETURNED can re-open an item that an earlier resolver closed
+    # (e.g. DD batch -> DD return -> the customer re-pays by transfer); ctx.items keeps only the open ones
+    base = getattr(ctx, "_ledger_items", None)
+    if base is None:
+        base = ctx.items
+    base = base.join(delta, on="item_id", how="left").with_columns(
+        (pl.col("open_amount") - pl.col("_d").fill_null(0.0)).clip(lower_bound=0.0, upper_bound=pl.col("total").abs())
+        .round(2).alias("open_amount")).drop("_d")
+    ctx._ledger_items = base
+    ctx.items = base.filter(pl.col("open_amount") > 0.005)
 
 
 def run(ctx: Ctx, modules=None, verbose=True) -> pl.DataFrame:
