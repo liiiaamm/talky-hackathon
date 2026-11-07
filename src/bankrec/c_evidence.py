@@ -1,6 +1,6 @@
-"""Persona C — evidence-based exception resolvers (POLICIES.md §3): SHORT_BANK_CHARGES and DUPLICATE_PAYMENT.
+"""Persona C — evidence-based exception resolvers (POLICIES.md §3): SHORT_BANK_CHARGES, DUPLICATE_PAYMENT and OVERPAYMENT.
 
-Pipeline resolvers f(ctx, pending) -> rows (see deterministic.mk_rows), exposed through two entry modules:
+Pipeline resolvers f(ctx, pending) -> rows (see deterministic.mk_rows), exposed through three entry modules:
 
   EARLY   module `c_bank_charges_early` (before ar_text): `bank_charges`
           cross-border receipt (the statement says so + payer country != entity country) short of exactly one open invoice of
@@ -9,10 +9,16 @@ Pipeline resolvers f(ctx, pending) -> rows (see deterministic.mk_rows), exposed 
   LATE    module `c_duplicates` (after every matcher): `duplicates`
           a line nobody explained, equal to the total of an item that was open at the window start and is already settled
           (shared ledger) or whose earlier same-amount, same-payer line an earlier resolver accepted -> DUPLICATE_PAYMENT.
+  LAST    module `c_overpayment` (after ar_due_subset, before the catch-all categories): `overpayments`
+          a line nobody explained that exceeds ONE open invoice of the single best-evidenced payer by a deliberate top-up (a
+          1-2-5 "nice number" in currency units or in percent of the invoice, see CONFIG), when no combination of 1-3 open
+          documents of any evidenced payer explains the cash exactly -> OVERPAYMENT, row = full open amount.
 
-  BANKREC_ORDER=remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_discount,c_fx,c_duplicates
+  BANKREC_ORDER=remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,
+                c_fx,c_duplicates,ar_due_subset,c_overpayment
 
-Every rule is a policy formula with an abstention; a line is only claimed when the formula has exactly one solution.
+Every rule is a policy formula or a scale-free convention with an abstention (nothing is read off labels); a line is only
+claimed when the formula has exactly one solution.
 (An exception post-pass over every module's rows was tried too: with BANKREC_LEDGER=1 it lowers the score, because the ledger
 already settles repeat payments; it is not part of this module.)
 """
@@ -54,6 +60,15 @@ SUBSET_MAX_K = 3
 SUBSET_MAX_POOL = 400
 # Log-bucket width for the amount-keyed joins (performance only: avoids an entity×currency cartesian join; any factor works).
 BUCKET = 1.05
+# POLICIES §3 OVERPAYMENT: "the customer paid more than the open amount of a single invoice; the invoice is fully cleared
+#   (amount = open amount); the excess stays on the customer account". POLICIES does not say how much more. A deliberate top-up
+#   is recognised by a scale-free convention, never by amounts read off labels: the excess is a "nice number" of the 1-2-5
+#   series (the series of currency denominations: 1, 2, 5, 10, 20, 50, ...), either in whole currency units and not above the
+#   invoice itself, or as a percentage of the invoice (0.1 % ... 50 %), equal within one minor unit (AMT_TOL: one rounding of
+#   invoice x rate or of the cash).
+NICE_MANTISSAS = (1, 2, 5)
+NICE_UNIT_DECADES = tuple(range(0, 7))     # 1 ... 5,000,000 whole units (the binding bound is 'excess <= invoice')
+NICE_PCT_DECADES = (-1, 0, 1)              # 0.1 % ... 50 % of the invoice
 
 
 # =====================================================================================================================
@@ -327,11 +342,30 @@ def bank_charges(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 # =====================================================================================================================
 # DUPLICATE_PAYMENT (late)
 # =====================================================================================================================
+def _prior_full_payments(ctx: Ctx) -> pl.DataFrame:
+    """item_id, p_date, p_cash of earlier ACCEPTED lines that paid one item in full by themselves: the line's only item row,
+    with amount = the line's cash. Source: the rows accepted so far in this run (pipeline.run exposes them as ctx._claimed)."""
+    empty = pl.DataFrame(schema={"item_id": pl.Utf8, "p_date": pl.Utf8, "p_cash": pl.Float64})
+    prev = [r for r in ctx.__dict__.get("_claimed", []) if r.height]
+    if not prev:
+        return empty
+    rows = pl.concat([r.select("bank_txn_id", "item_id", pl.col("amount").cast(pl.Float64)) for r in prev], how="vertical_relaxed").filter(
+        pl.col("item_id").is_not_null() & (pl.col("item_id") != ""))
+    single = rows.group_by("bank_txn_id").agg(pl.len().alias("_n"), pl.col("item_id").first(), pl.col("amount").first()).filter(
+        pl.col("_n") == 1)
+    bank = ctx.bank.select("bank_txn_id", pl.col("booking_date").alias("p_date"), pl.col("abs_amt").round(2).alias("p_cash"))
+    return single.join(bank, on="bank_txn_id").filter((pl.col("amount") - pl.col("p_cash")).abs() <= AMT_TOL).select(
+        "item_id", "p_date", "p_cash")
+
+
 def duplicates(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
-    """POLICIES §3: an item already settled is paid again (customer pays twice / we pay a supplier twice). A pending line equal
-    to the full total of a settled item of the evidenced party → that item, amount = what was paid again (= the total).
-    Settled = known item no longer open (ledger), or an exact-amount item that an earlier line took (see module doc)."""
+    """POLICIES §3: an item already settled is paid again (customer pays twice / we pay a supplier twice); the LATER line gets
+    the exception. A pending line equal to the full total of an item of the evidenced party that the run already considers
+    settled (ledger) or that an earlier same-amount line of that party took → that item, amount = the total. The code is
+    DUPLICATE_PAYMENT only when an earlier accepted line paid that same item in full by itself (_prior_full_payments);
+    otherwise the item was closed by some other claim and this line is its payment, with no exception."""
     out = []
+    prior = _prior_full_payments(ctx)
     claimed = ctx.bank.join(pending.select("bank_txn_id"), on="bank_txn_id", how="anti")   # lines earlier resolvers explained
     for credit, kind, side in ((True, "ARI", "AR"), (False, "API", "AP")):
         lines = _lines(ctx, pending, credit)
@@ -373,7 +407,58 @@ def duplicates(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         n = c.group_by("bank_txn_id").agg(pl.col("party_id").n_unique().alias("_np"))
         c = c.join(n.filter(pl.col("_np") == 1), on="bank_txn_id", how="semi")
         c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique("item_id", keep="first", maintain_order=True)
-        out.append(c.select("bank_txn_id", "item_id", pl.col("cash").alias("amount")))
+        # repeat = an earlier accepted line, booked before this one, paid this same item in full with the same cash
+        rep = c.select("bank_txn_id", "item_id", "booking_date", "cash").join(prior, on="item_id").filter(
+            (pl.col("p_date") < pl.col("booking_date")) & ((pl.col("p_cash") - pl.col("cash")).abs() <= AMT_TOL)).select(
+            "bank_txn_id", "item_id").unique().with_columns(pl.lit(True).alias("_rep"))
+        c = c.join(rep, on=["bank_txn_id", "item_id"], how="left").with_columns(pl.col("_rep").fill_null(False))
+        out.append(c.select("bank_txn_id", "item_id", pl.col("cash").alias("amount"), "_rep"))
     if not out:
         return empty_rows()
-    return mk_rows(pl.concat(out), "c_duplicate", "DUPLICATE_PAYMENT")
+    return mk_rows(pl.concat(out), "c_duplicate", pl.when(pl.col("_rep")).then(pl.lit("DUPLICATE_PAYMENT")).otherwise(pl.lit("")))
+
+
+# =====================================================================================================================
+# OVERPAYMENT (last)
+# =====================================================================================================================
+def _nice_excess(ex: pl.Expr, open_: pl.Expr) -> pl.Expr:
+    """True when the excess of a receipt over an invoice is a deliberate top-up: a 1-2-5 nice number of whole currency units
+    not above the invoice, or a 1-2-5 nice percentage of the invoice, within one minor unit (see CONFIG)."""
+    units = [(ex - float(m * 10 ** n)).abs() <= AMT_TOL for m in NICE_MANTISSAS for n in NICE_UNIT_DECADES]
+    pct = [(ex - (open_ * (m * 10.0 ** k) / 100.0).round(2)).abs() <= AMT_TOL for m in NICE_MANTISSAS for k in NICE_PCT_DECADES]
+    return (pl.any_horizontal(units) & (ex <= open_ + AMT_TOL)) | pl.any_horizontal(pct)
+
+
+def overpayments(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    """POLICIES §3 OVERPAYMENT, for receipts no other resolver explained: the cash exceeds ONE open invoice of the single
+    best-evidenced payer by a deliberate top-up (_nice_excess), and no combination of 1-3 open documents of any evidenced payer
+    explains the cash exactly (an exact sum is a multi-invoice payment, not an over-payment). Exactly one invoice must fit.
+    Row = the invoice's open amount; the excess stays on the customer account (no extra row)."""
+    lines = _lines(ctx, pending, credit=True)
+    items = _open_invoices(ctx)
+    if not lines.height or not items.height:
+        return empty_rows()
+    slim = lines.select("bank_txn_id", "entity", "currency", "cash", "booking_date")
+    # open / cash in [0.5, 1): a positive excess not above the invoice itself (the percentage shapes stop at 50 %)
+    c = _keyed(slim, items, "cash", "open", 0.5, 1.0).with_columns((pl.col("cash") - pl.col("open")).round(2).alias("excess"))
+    c = c.filter((pl.col("excess") > AMT_TOL) & (pl.col("issue_date") <= pl.col("booking_date"))
+                 & _nice_excess(pl.col("excess"), pl.col("open")))
+    if not c.height:
+        return empty_rows()
+    c = c.join(lines.select("bank_txn_id", "tnorm", "druns", "cp_iban"), on="bank_txn_id")
+    c = _with_evidence(c, ctx, "AR").filter(pl.col("ev") > 0)
+    if not c.height:
+        return empty_rows()
+    # the payer is the single best-evidenced party of the line ...
+    cl = lines.join(c.select("bank_txn_id").unique(), on="bank_txn_id", how="semi")
+    probe = cl.join(_line_parties(ctx, cl, "AR", items), on="bank_txn_id")
+    pc = _with_evidence(probe.join(items.select("party_id", "entity", "currency", "item_id", "party_name", "docnorm"),
+                                   on=["party_id", "entity", "currency"]), ctx, "AR").filter(pl.col("ev") > 0)
+    best = _best_party(pc).select("bank_txn_id", "party_id").unique()
+    c = c.join(best, on=["bank_txn_id", "party_id"], how="semi")
+    # ... and no evidenced party's open documents explain the cash exactly (then nothing was over-paid)
+    c = c.join(_exactly_explained(ctx, c, probe=probe).select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+    if not c.height:
+        return empty_rows()
+    out = _unique_solution(c)
+    return mk_rows(out.with_columns(pl.col("open").alias("amount")), "c_overpayment", "OVERPAYMENT")

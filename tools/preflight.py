@@ -13,7 +13,7 @@ import shutil
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-ORDER = "remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,c_fx,ar_due_subset,c_duplicates"
+ORDER = "remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,c_fx,ar_due_subset,c_duplicates,c_overpayment"
 DEPS = ("polars", "numpy", "pandas", "sklearn", "joblib", "ahocorasick", "pypdf", "openpyxl", "lightgbm")
 RESOLVERS = ("remittances", "pdf_clauses", "bulk_mixed_runs", "ar_text", "exact_amount", "multi_invoice", "partial_payments",
              "discount_receipts", "bank_charges", "fx_receipts", "due_subset", "duplicates", "service_month", "credit_note_payouts", "strong_categories", "all_categories")
