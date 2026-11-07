@@ -75,7 +75,7 @@ class MatchProposal:
 class ItemStore:
     """Static item attributes as numpy arrays + lookup indexes. Balances live in the ledger."""
 
-    def __init__(self, items: pd.DataFrame):
+    def __init__(self, items: pd.DataFrame, suffix_tails: bool = True):
         it = items.reset_index(drop=True)
         self.item_id = it.item_id.to_numpy()
         self.kind = it.kind.to_numpy()
@@ -101,7 +101,7 @@ class ItemStore:
             for t in k.tails:
                 self.tails[(e, t)].append(i)
             # customers abbreviate a run of invoices to their last six digits ("FA250112467 112647 112745")
-            suf = k.digits[-6:].lstrip("0") if len(k.digits) > 6 else ""
+            suf = k.digits[-6:].lstrip("0") if suffix_tails and len(k.digits) > 6 else ""
             if len(suf) >= 5 and suf not in k.tails:
                 self.tails[(e, suf)].append(i)
         if "po" in it:
