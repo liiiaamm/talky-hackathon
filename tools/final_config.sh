@@ -3,7 +3,7 @@
 # inherits PYTHONHASHSEED=0 at startup (setting it inside Python is too late: the hash seed is fixed at launch).
 export PYTHONHASHSEED=0
 export BANKREC_LEDGER=1
-export BANKREC_ORDER=remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,c_fx,ar_due_subset,c_duplicates,c_overpayment
+export BANKREC_ORDER=remittance,pdf_clauses,c_bank_charges_early,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,c_fx,ar_due_subset,c_duplicates,c_overpayment,c_ptail,c_contig
 unset BANKREC_SKIP BANKREC_AR_TEXT_CFG BANKREC_AR_TEXT_SEED BANKREC_PARTIAL_PMIN BANKREC_UNID_ALL BANKREC_DUE_SKIP_TOUCHED BANKREC_DUE_CONFLICT
 # INT7 (clean TRAIN H1 93.62 -> 93.97, H2 93.29 -> 93.73): UNIDENTIFIED exception when the category model gives P >= 0.20
 # (threshold fixed before the sensitivity sweep; plateau 0.05-0.30) and the issue-date gate (no item issued after the line).
