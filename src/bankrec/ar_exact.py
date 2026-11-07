@@ -142,8 +142,13 @@ def adjusted_amount(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         (pl.col("amt") / pl.col("open_amount")).alias("ratio"))
     # a line citing several of our invoices is a 1:N case, not a partial
     ndocs = c2.group_by("bank_txn_id").agg(pl.col("item_id").n_unique().alias("nd"))
+    # an overpayment is a deliberate top-up (1-2-5 nice excess, c_evidence._nice_excess); any other excess is more often a
+    # multi-invoice payment that cites one invoice, so this resolver leaves it to the multi-invoice resolvers
+    from .c_evidence import _nice_excess
     c2 = c2.join(ndocs, on="bank_txn_id").filter((pl.col("nd") == 1) & (
-        ((pl.col("kind") == "PART") & (pl.col("ratio") > 0.02)) | ((pl.col("kind") == "OVER") & (pl.col("ratio") <= 1.3))))
+        ((pl.col("kind") == "PART") & (pl.col("ratio") > 0.02))
+        | ((pl.col("kind") == "OVER") & (pl.col("ratio") <= 1.3)
+           & _nice_excess((pl.col("amt") - pl.col("open_amount")).round(2), pl.col("open_amount")))))
     # ... nor is a line that also cites (by last 6 digits) another open invoice of the same customer
     others = c2.select("bank_txn_id", "tnorm", "party_id", pl.col("item_id").alias("mine")).join(
         it.select("item_id", "party_id", pl.col("docnorm").str.replace_all(r"\D", "").str.slice(-6).alias("d6")), on="party_id").filter(
