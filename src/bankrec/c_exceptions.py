@@ -280,7 +280,10 @@ def fx_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     if not fx.height:
         return empty_rows()
     p2 = fx.with_columns(pl.col("orig_amt").alias("abs_amt"), pl.col("orig_amt").alias("amt"), pl.col("orig_currency").alias("currency"),
-                         pl.lit(None, pl.Float64).alias("orig_amt"), pl.lit(None, pl.Utf8).alias("orig_currency"))
+                         pl.col("orig_amt").map_elements(lambda v: f"{v:.2f}", return_dtype=pl.Utf8).alias("amount"),   # raw string column used by ar_text
+                         pl.lit(None, pl.Float64).alias("orig_amt"), pl.lit(None, pl.Utf8).alias("orig_currency"),
+                         pl.lit("", pl.Utf8).alias("orig_amount"))
+    # (ar_text was tried here too: on the transformed frame it adds ~16 lines/window at ~25 % precision -> not used)
     rows, pend = [], p2
     for f in (exact_amount, adjusted_amount, multi_invoice):
         r = f(ctx, pend)
@@ -328,8 +331,10 @@ def discount_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         pl.col("open_amount").alias("open_full")).drop("dpct", "ddays")
     ctx2 = copy.copy(ctx)
     ctx2.items = view
+    # exact_amount only: on the discounted view the multi-invoice matcher is 38-45 % right (its FIFO/pair rules find
+    # coincidental sums once amounts are shifted); the single-invoice exact match stays at 87-93 %.
     rows, pend = [], lines
-    for f in (exact_amount, multi_invoice):
+    for f in (exact_amount,):
         r = f(ctx2, pend)
         if r.height:
             rows.append(r)
