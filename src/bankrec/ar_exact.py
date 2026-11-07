@@ -38,6 +38,16 @@ def _service_month(col: str = "alltext") -> pl.Expr:
     return e
 
 
+def _cancelled(ctx: Ctx) -> pl.DataFrame:
+    """ARI fully cancelled by an ARC that rectifies it with the same total ("anula y sustituye"): never settled by bank."""
+    if "cancelled" not in ctx.__dict__.setdefault("_cache", {}):
+        arc = ctx.all_items.filter((pl.col("item_type") == "ARC") & pl.col("related_document").is_not_null()).select(
+            "entity", norm_expr("related_document").alias("docnorm"), pl.col("total").round(2).alias("t"))
+        ari = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", pl.col("total").round(2).alias("t"))
+        ctx._cache["cancelled"] = ari.join(arc, on=["entity", "docnorm", "t"], how="semi").select("item_id")
+    return ctx._cache["cancelled"]
+
+
 def _names(ctx: Ctx) -> pl.DataFrame:
     """customer_id -> list of 10-char normalised name keys (name, trade name) + master IBAN."""
     c = ctx.customers.select(pl.col("customer_id").alias("party_id"), "iban",
@@ -54,7 +64,7 @@ def exact_amount(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("cp_iban"), _service_month().alias("smonth"))
     items = ctx.items.filter((pl.col("item_type") == "ARI") & (pl.col("open_amount") > 0)).select(
         "item_id", "entity", "party_id", "currency", "docnorm", "issue_date", pl.col("open_amount").round(2).alias("amt2"),
-        norm_expr("party_name").str.slice(0, 10).alias("k0"))
+        norm_expr("party_name").str.slice(0, 10).alias("k0")).join(_cancelled(ctx), on="item_id", how="anti")
     c = lines.join(items, on=["entity", "amt2", "currency"]).filter(pl.col("issue_date") <= pl.col("booking_date"))
     c = c.join(_names(ctx), on="party_id", how="left")
 
@@ -89,4 +99,83 @@ def exact_amount(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return mk_rows(out.with_columns(pl.col("amt2").alias("amount")), "ar_exact")
 
 
-RESOLVERS = [exact_amount]
+WHT_ENTITIES = ["MX01", "BR01", "MA01"]
+WHT_RATES = [0.0125, 0.015, 0.10]
+
+
+def _evidence_cands(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    """All (credit line, open ARI of same entity+currency issued before) pairs with customer evidence (doc / doc6 / name / iban)."""
+    lines = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id").select(
+        "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("amt"),
+        norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("cp_iban"), "alltext")
+    items = ctx.items.filter((pl.col("item_type") == "ARI") & (pl.col("open_amount") > 0)).select(
+        "item_id", "entity", "party_id", "currency", "docnorm", "issue_date", "total", "open_amount", "payment_terms",
+        norm_expr("party_name").str.slice(0, 10).alias("k0")).join(_cancelled(ctx), on="item_id", how="anti")
+    return lines, items
+
+
+def adjusted_amount(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    """One invoice, cash differs for a computable reason (POLICIES §3): discount (in/after terms), withholding, doc-cited partial
+    or overpayment."""
+    lines, items = _evidence_cands(ctx, pending)
+    if lines.height == 0:
+        return empty_rows()
+    terms = ctx.terms.select(pl.col("code").alias("payment_terms"),
+                             pl.col("early_payment_discount_pct").cast(pl.Float64, strict=False).alias("dpct"),
+                             pl.col("discount_days").cast(pl.Int32, strict=False).alias("ddays"))
+    it = items.join(terms, on="payment_terms", how="left")
+    # expected cash variants per item -> (item, exp_amt, kind)
+    disc = it.filter(pl.col("dpct") > 0).select("item_id", (pl.col("total") * (1 - pl.col("dpct") / 100)).round(2).alias("exp"),
+                                                pl.lit("DISC").alias("kind"))
+    wht = pl.concat([it.filter(pl.col("entity").is_in(WHT_ENTITIES)).select(
+        "item_id", (pl.col("total") * (1 - r)).round(2).alias("exp"), pl.lit("WHT").alias("kind")) for r in WHT_RATES])
+    exp = pl.concat([disc, wht]).join(it, on="item_id")
+    c1 = lines.join(exp, left_on=["entity", "currency", "amt"], right_on=["entity", "currency", "exp"]).filter(
+        pl.col("issue_date") <= pl.col("booking_date"))
+    # doc-cited single invoice with a different amount (partial / overpayment): doc-like tokens of the text == our doc number
+    toks = lines.with_columns(pl.col("alltext").str.extract_all(r"[A-Z]{0,4}\d[\d\-/]{5,}").alias("toks")).explode("toks").filter(
+        pl.col("toks").is_not_null()).with_columns(norm_expr("toks").alias("tok"))
+    c2 = toks.join(it, left_on=["entity", "currency", "tok"], right_on=["entity", "currency", "docnorm"]).filter(
+        pl.col("issue_date") <= pl.col("booking_date")).with_columns(
+        pl.when(pl.col("amt") < pl.col("open_amount") - 0.01).then(pl.lit("PART"))
+        .when(pl.col("amt") > pl.col("open_amount") + 0.01).then(pl.lit("OVER")).otherwise(pl.lit("EXACT")).alias("kind"),
+        (pl.col("amt") / pl.col("open_amount")).alias("ratio"))
+    # a line citing several of our invoices is a 1:N case, not a partial
+    ndocs = c2.group_by("bank_txn_id").agg(pl.col("item_id").n_unique().alias("nd"))
+    c2 = c2.join(ndocs, on="bank_txn_id").filter((pl.col("nd") == 1) & (
+        ((pl.col("kind") == "PART") & (pl.col("ratio") > 0.02)) | ((pl.col("kind") == "OVER") & (pl.col("ratio") <= 1.3))))
+    # ... nor is a line that also cites (by last 6 digits) another open invoice of the same customer
+    others = c2.select("bank_txn_id", "tnorm", "party_id", pl.col("item_id").alias("mine")).join(
+        it.select("item_id", "party_id", pl.col("docnorm").str.replace_all(r"\D", "").str.slice(-6).alias("d6")), on="party_id").filter(
+        (pl.col("item_id") != pl.col("mine")) & (pl.col("d6").str.len_chars() == 6) & pl.col("tnorm").str.contains(pl.col("d6"), literal=True))
+    c2 = c2.join(others.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+
+    def has(df, k):
+        return (pl.col(k).str.len_chars() >= 5) & pl.col("tnorm").str.contains(pl.col(k), literal=True)
+
+    names = _names(ctx)
+    c1 = c1.join(names, on="party_id", how="left").with_columns(
+        (has(c1, "k0").fill_null(False) | has(c1, "k1").fill_null(False) | has(c1, "k2").fill_null(False)
+         | (pl.col("cp_iban").is_not_null() & (pl.col("cp_iban") == pl.col("iban"))).fill_null(False)
+         | pl.col("tnorm").str.contains(pl.col("docnorm"), literal=True)).alias("ev")).filter(pl.col("ev"))
+    c2 = c2.join(names, on="party_id", how="left").filter(
+        has(c2, "k0").fill_null(False) | has(c2, "k1").fill_null(False) | has(c2, "k2").fill_null(False)
+        | (pl.col("cp_iban").is_not_null() & (pl.col("cp_iban") == pl.col("iban"))).fill_null(False))
+    cols = ["bank_txn_id", "item_id", "amt", "open_amount", "kind", "issue_date", "booking_date", "ddays"]
+    cand = pl.concat([c1.with_columns(pl.lit(1).alias("prio")).select(cols + ["prio"]),
+                      c2.with_columns(pl.lit(2).alias("prio")).select(cols + ["prio"])])
+    late = pl.col("booking_date").str.to_date() > pl.col("issue_date").str.to_date().dt.offset_by(
+        pl.concat_str([(pl.col("ddays").fill_null(0) + 3).cast(pl.Utf8), pl.lit("d")]))
+    cand = cand.with_columns(
+        pl.when(pl.col("kind") == "DISC").then(pl.when(late).then(pl.lit("PARTIAL")).otherwise(pl.lit("SHORT_DISCOUNT")))
+        .when(pl.col("kind") == "WHT").then(pl.lit("SHORT_WITHHOLDING"))
+        .when(pl.col("kind") == "PART").then(pl.lit("PARTIAL"))
+        .when(pl.col("kind") == "OVER").then(pl.lit("OVERPAYMENT"))
+        .otherwise(pl.lit("")).alias("exception"))
+    cand = cand.with_columns(pl.when(pl.col("exception") == "PARTIAL").then(pl.col("amt")).otherwise(pl.col("open_amount")).alias("amount"))
+    cand = cand.sort(["prio", "issue_date", "booking_date"])
+    out = cand.unique("bank_txn_id", keep="first", maintain_order=True).unique("item_id", keep="first", maintain_order=True)
+    return mk_rows(out, "ar_adjusted", pl.col("exception"))
+
+
+RESOLVERS = [exact_amount, adjusted_amount]
