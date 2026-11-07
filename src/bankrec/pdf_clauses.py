@@ -101,16 +101,19 @@ def _expected(ctx: Ctx, cl: pl.DataFrame) -> pl.DataFrame:
     items = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "issue_date")
     cl = cl.with_columns(norm_expr("document_number").alias("docnorm")).join(items, on=["entity", "docnorm"])
     inst = cl.filter((pl.col("kind") == "INST") & (pl.col("amounts").list.len() == pl.col("days").list.len())).with_columns(
-        pl.int_ranges(1, pl.col("amounts").list.len() + 1).alias("k"), pl.col("amounts").list.len().cast(pl.Int32).alias("n")).explode(
-        ["amounts", "days", "k"]).select("item_id", pl.col("amounts").round(2).alias("exp"), pl.lit("INST").alias("kind"), "k", "n",
-                                         (pl.col("issue_date").str.to_date() + pl.duration(days=pl.col("days"))).alias("due"))
+        pl.int_ranges(1, pl.col("amounts").list.len() + 1).alias("k"), pl.col("amounts").list.len().cast(pl.Int32).alias("n"),
+        pl.col("amounts").list.eval(pl.element().cum_sum()).alias("cum")).explode(
+        ["amounts", "days", "k", "cum"]).select("item_id", pl.col("amounts").round(2).alias("exp"), pl.lit("INST").alias("kind"), "k", "n",
+                                                (pl.col("issue_date").str.to_date() + pl.duration(days=pl.col("days"))).alias("due"),
+                                                (pl.col("cum") - pl.col("amounts")).round(2).alias("cum_before"))   # paid by instalments 1..k-1
     ret = cl.filter(pl.col("kind") == "RET")
     ret = pl.concat([
         ret.select("item_id", pl.col("amounts").list.get(0).round(2).alias("exp"), pl.lit("RET1").alias("kind")),
         ret.select("item_id", pl.col("amounts").list.get(1).round(2).alias("exp"), pl.lit("RET2").alias("kind"))]).with_columns(
-        pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"))
+        pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"), pl.lit(None, pl.Float64).alias("cum_before"))
     adv = cl.filter(pl.col("kind") == "ADV").select("item_id", pl.col("amounts").list.get(0).round(2).alias("exp"), pl.lit("ADV").alias("kind"),
-                                                    pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"))
+                                                    pl.lit(None, pl.Int64).alias("k"), pl.lit(None, pl.Int32).alias("n"), pl.lit(None, pl.Date).alias("due"),
+                                                    pl.lit(None, pl.Float64).alias("cum_before"))
     return pl.concat([inst.with_columns(pl.col("k").cast(pl.Int64), pl.col("n").cast(pl.Int32)), ret, adv], how="vertical_relaxed")
 
 
@@ -121,12 +124,17 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         return empty_rows()
     exp = _expected(ctx, cl)
     open_ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "party_id", "currency", "docnorm", "issue_date",
-                                                                      norm_expr("party_name").str.slice(0, 10).alias("k0"))
+                                                                      "total", "open_amount", norm_expr("party_name").str.slice(0, 10).alias("k0"))
     exp = exp.join(open_ari, on="item_id")
     lines = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id").select(
-        "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("exp"),
+        "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("cash"),
+        (pl.col("abs_amt") * 100).round(0).cast(pl.Int64).alias("ck"),
         norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("cp_iban"))
-    c = lines.join(exp, on=["entity", "currency", "exp"]).filter(pl.col("issue_date") <= pl.col("booking_date")).join(
+    # amounts printed on a PDF are rounded on their own (payable = total - retention, instalment splits): allow one cent of
+    # difference between the clause amount and the cash (POLICIES §2 tolerance is max(0.01, 0.5 %)); the row keeps the cash.
+    exp = exp.with_columns((pl.col("exp") * 100).round(0).cast(pl.Int64).alias("ck"))
+    exp = pl.concat([exp.with_columns((pl.col("ck") + d).alias("ck")) for d in (-1, 0, 1)])
+    c = lines.join(exp, on=["entity", "currency", "ck"]).filter(pl.col("issue_date") <= pl.col("booking_date")).join(
         _names(ctx), on="party_id", how="left")
 
     def has(k):
@@ -138,13 +146,34 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         (has("k0") | has("k1") | has("k2") | (pl.col("cp_iban").is_not_null() & (pl.col("cp_iban") == pl.col("iban"))).fill_null(False)
          | ((digits.str.len_chars() >= 6) & pl.col("tnorm").str.contains(digits.str.slice(-6), literal=True))).alias("ev"))
     c = c.filter(pl.col("doc") | pl.col("ev")).with_columns(
-        (pl.col("booking_date").str.to_date() - pl.col("due")).dt.total_days().abs().fill_null(0).alias("lag"))
-    # instalment number: the one whose due date is closest to the booking date (per line & item)
-    c = c.sort(["doc", "lag"], descending=[True, False]).unique(["bank_txn_id", "item_id"], keep="first")
-    c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind", "k"], keep="first", maintain_order=True)
+        (pl.col("booking_date").str.to_date() - pl.col("due")).dt.total_days().abs().fill_null(0).alias("lag"),
+        # an instalment the balance says is already paid (its predecessors' sum + its own amount <= what was paid before this
+        # resolver ran) cannot be paid again. The balance only EXCLUDES; it never picks: this resolver sees the whole window
+        # at once, so several instalments of one invoice inside the window share the same opening balance and must be told
+        # apart by their due dates below.
+        ((pl.col("kind") != "INST") | (pl.col("cum_before") + pl.col("exp") > pl.col("total") - pl.col("open_amount") + 0.011)).alias("unpaid"))
+    c = c.filter(pl.col("unpaid"))
+    # One line per bank_txn_id (best evidence first, then closest due date), but instalments of the SAME invoice are assigned
+    # one-to-one in booking order: the earliest receipt takes the lowest unpaid instalment whose amount matches, the next
+    # receipt the next one, and so on (instalments are paid in order, POLICIES §5.8). Picking "closest due date" for each
+    # line independently made two receipts of equal amount claim the same instalment, and the dedup dropped the loser.
+    c = c.sort(["doc", "lag"], descending=[True, False])
+    best_item = c.unique("bank_txn_id", keep="first", maintain_order=True).select("bank_txn_id", "item_id", "kind")
+    c = c.join(best_item, on=["bank_txn_id", "item_id", "kind"], how="semi")          # keep every feasible k of the chosen item
+    inst = c.filter(pl.col("kind") == "INST").sort(["item_id", "booking_date", "bank_txn_id", "k"])
+    keep, taken, seen = [], set(), set()
+    for txn, iid, k in inst.select("bank_txn_id", "item_id", "k").iter_rows():
+        if txn in seen or (iid, k) in taken:
+            continue
+        seen.add(txn); taken.add((iid, k)); keep.append((txn, iid, k))
+    inst = inst.join(pl.DataFrame(keep, schema={"bank_txn_id": pl.Utf8, "item_id": pl.Utf8, "k": pl.Int64}, orient="row"),
+                     on=["bank_txn_id", "item_id", "k"], how="semi") if keep else inst.clear()
+    other = (c.filter(pl.col("kind") != "INST").unique(["bank_txn_id", "item_id"], keep="first", maintain_order=True)
+             .unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind"], keep="first", maintain_order=True))
+    c = pl.concat([inst, other.select(inst.columns)], how="vertical_relaxed").unique("bank_txn_id", keep="first", maintain_order=True)
     exc = (pl.when(pl.col("kind") == "INST").then(pl.when(pl.col("k") < pl.col("n")).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
            .when(pl.col("kind").is_in(["RET1", "ADV"])).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
-    return mk_rows(c.with_columns(pl.col("exp").alias("amount")), "pdf_clause", exc)
+    return mk_rows(c.with_columns(pl.col("cash").alias("amount")), "pdf_clause", exc)
 
 
 def replaced_invoices(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
