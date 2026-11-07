@@ -35,7 +35,7 @@ from matching.customer_matcher import CustomerMatcher, ItemStore  # noqa: E402
 from matching.opening import cancelled_mask, cents, train_opening  # noqa: E402
 from matching.party_resolver import PartyResolver  # noqa: E402
 
-DEFAULT_CFG = {"sides": ["AR"], "min_confidence": 0.0, "node_budget": 2000, "max_pool": 40, "top_parties": 8}
+DEFAULT_CFG = {"sides": ["AR"], "min_confidence": 0.0, "node_budget": 2000, "max_pool": 40, "top_parties": 8, "use_window": True}
 STATE = {}   # last run's matcher/store/ledger, for Person C and diagnostics
 
 
