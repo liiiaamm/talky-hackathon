@@ -25,7 +25,8 @@ except ImportError:
     LATE = []
 MODULES.extend(det.LATE_AP)
 _SKIP = set(filter(None, __import__("os").environ.get("BANKREC_SKIP", "").split(",")))   # e.g. BANKREC_SKIP=ra_advices,remittance
-for _name in ("remittance", "ar_exact", "ar_multi", "ar_text"):       # teammates' modules: expose RESOLVERS = [f, ...]
+_ORDER = __import__("os").environ.get("BANKREC_ORDER", "remittance,pdf_clauses,ar_text,ar_exact,ar_multi").split(",")   # optional modules, in order
+for _name in _ORDER:       # teammates' modules: expose RESOLVERS = [f, ...]
     if _name in _SKIP:
         continue
     try:
@@ -44,6 +45,26 @@ def fallback(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         pl.lit("fallback").alias("module"))
 
 
+LEDGER = os.environ.get("BANKREC_LEDGER", "0") == "1"
+
+
+def apply_ledger(ctx: Ctx, rows: pl.DataFrame):
+    """Shared ledger: what a resolver settled reduces ctx.items.open_amount for the resolvers after it
+    (RETURNED re-opens, DUPLICATE_PAYMENT leaves the balance, anything else reduces it). Fully settled items leave ctx.items."""
+    it = rows.filter(pl.col("item_id").is_not_null() & (pl.col("item_id") != ""))
+    if it.height == 0:
+        return
+    delta = it.group_by("item_id").agg(
+        pl.when(pl.col("exception") == "RETURNED").then(-pl.col("amount"))
+        .when(pl.col("exception") == "DUPLICATE_PAYMENT").then(0.0)
+        # fully-cleared exceptions close the item whatever the cash
+        .when(pl.col("exception").is_in(["SHORT_DISCOUNT", "SHORT_BANK_CHARGES", "SHORT_WITHHOLDING", "FX_DIFFERENCE", "OVERPAYMENT"]))
+        .then(pl.lit(1e15)).otherwise(pl.col("amount")).sum().alias("_d"))
+    items = ctx.items.join(delta, on="item_id", how="left").with_columns(
+        (pl.col("open_amount") - pl.col("_d").fill_null(0.0)).clip(lower_bound=0.0).round(2).alias("open_amount")).drop("_d")
+    ctx.items = items.filter(pl.col("open_amount") > 0.005)
+
+
 def run(ctx: Ctx, modules=None, verbose=True) -> pl.DataFrame:
     modules = MODULES if modules is None else modules
     pending = ctx.bank
@@ -55,6 +76,8 @@ def run(ctx: Ctx, modules=None, verbose=True) -> pl.DataFrame:
             rows = rows.join(pending.select("bank_txn_id"), on="bank_txn_id", how="semi")   # never touch lines already owned
             out.append(rows)
             pending = pending.join(rows.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+            if LEDGER:
+                apply_ledger(ctx, rows)
         if verbose:
             print(f"  {f.__name__:<22} lines {rows['bank_txn_id'].n_unique() if rows.height else 0:>8,}  rows {rows.height:>9,}"
                   f"  pending {pending.height:>8,}  ({time.time() - t0:.1f}s)")
