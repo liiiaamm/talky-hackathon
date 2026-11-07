@@ -1,0 +1,2948 @@
+{
+ "version": 1,
+ "source": "TRAIN (participant archive): inputs + train golden",
+ "groups": [
+  {
+   "key": "one_to_one",
+   "segments": [
+    "ar_1to1",
+    "ar_ref_noise",
+    "ar_same_amount_fifo"
+   ]
+  },
+  {
+   "key": "one_to_many",
+   "segments": [
+    "ar_1toN_remittance",
+    "ar_1toN_credit_note",
+    "ar_1toN_text"
+   ]
+  },
+  {
+   "key": "many_to_one",
+   "segments": [
+    "ar_instalment",
+    "ar_partial"
+   ]
+  },
+  {
+   "key": "short",
+   "segments": [
+    "ar_short_discount",
+    "ar_short_bank_charges",
+    "ar_short_withholding",
+    "ar_short_dispute"
+   ]
+  },
+  {
+   "key": "over",
+   "segments": [
+    "ar_overpayment",
+    "ar_duplicate_payment"
+   ]
+  },
+  {
+   "key": "fx",
+   "segments": [
+    "ar_fx"
+   ]
+  },
+  {
+   "key": "third_party",
+   "segments": [
+    "ar_third_party_parent",
+    "ar_third_party_agency",
+    "ar_third_party_confirming"
+   ]
+  },
+  {
+   "key": "returns",
+   "segments": [
+    "ar_dd_returned",
+    "ar_cheque_returned"
+   ]
+  },
+  {
+   "key": "aggregates",
+   "segments": [
+    "ar_dd_batch",
+    "ar_card_settlement"
+   ]
+  },
+  {
+   "key": "documents",
+   "segments": [
+    "ar_retention",
+    "ar_advance_deduction",
+    "ar_replaced_invoice",
+    "ar_new_iban"
+   ]
+  },
+  {
+   "key": "suppliers",
+   "segments": [
+    "ap_payment_single",
+    "ap_confirming",
+    "ap_factored",
+    "ap_direct_debit"
+   ]
+  },
+  {
+   "key": "non_invoice",
+   "segments": [
+    "nonitem_bank_fees",
+    "nonitem_cash_pool",
+    "nonitem_payroll",
+    "nonitem_tax_payment"
+   ]
+  },
+  {
+   "key": "unidentified",
+   "segments": [
+    "unidentified",
+    "unidentified_lookalike"
+   ]
+  }
+ ],
+ "examples": [
+  {
+   "segment": "ar_1to1",
+   "group": "one_to_one",
+   "bank": {
+    "bank_txn_id": "BT-2025-0153909",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR-2",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2025-05-23",
+    "value_date": "2025-05-23",
+    "amount": "226.81",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "PAGO FRA. FV25-0",
+    "text": "TRANSFERENCIA SEPA | 20603619-FMC CONSTRUCCIONES S.COOP. | PAGO FRA. FV25-0400572",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2025-3025014",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0400572",
+     "issue_date": "2025-01-07",
+     "due_date": "2025-01-07",
+     "party": "FMC Construcciones S.Coop.",
+     "currency": "EUR",
+     "total": "226.81",
+     "po": "",
+     "answer": true,
+     "allocated": "226.81"
+    },
+    {
+     "item_id": "ARI-2025-5213745",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0412105",
+     "issue_date": "2025-05-15",
+     "due_date": "2025-05-15",
+     "party": "FMC Construcciones S.Coop.",
+     "currency": "EUR",
+     "total": "344.57",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2025-5542686",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0403668",
+     "issue_date": "2025-02-20",
+     "due_date": "2025-02-20",
+     "party": "FMC Construcciones S.Coop.",
+     "currency": "EUR",
+     "total": "791.32",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0153909,ARI-2025-3025014,226.81,,"
+  },
+  {
+   "segment": "ar_ref_noise",
+   "group": "one_to_one",
+   "bank": {
+    "bank_txn_id": "BT-2023-0137753",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2023-05-17",
+    "value_date": "2023-05-17",
+    "amount": "913.19",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "PAY-2023-615200",
+    "text": "TRANSFERENCIAS VILLAMAR DEL RIO DEPUR | VILLAMAR D FACTURA FV23-0505",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2023-7779370",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0505483",
+     "issue_date": "2023-04-03",
+     "due_date": "2023-05-03",
+     "party": "Villamar del Río Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "913.19",
+     "po": "",
+     "answer": true,
+     "allocated": "913.19"
+    },
+    {
+     "item_id": "ARC-2023-1440858",
+     "kind": "AR_CREDIT_NOTE",
+     "entity": "ES01",
+     "number": "AB23-0500008",
+     "issue_date": "2023-01-05",
+     "due_date": "",
+     "party": "Villamar del Río Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "-155.84",
+     "po": "",
+     "related": "FV22-0520977",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2022-7111706",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0520977",
+     "issue_date": "2022-12-29",
+     "due_date": "2023-01-28",
+     "party": "Villamar del Río Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "155.84",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0137753,ARI-2023-7779370,913.19,,"
+  },
+  {
+   "segment": "ar_same_amount_fifo",
+   "group": "one_to_one",
+   "bank": {
+    "bank_txn_id": "BT-2024-0079986",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2024-03-22",
+    "value_date": "2024-03-22",
+    "amount": "2810.83",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "AGUAS CALVO PLUS",
+    "text": "TRANSFERENCIA SEPA | 92196290-AGUAS CALVO PLUS S.L.U. | 92196290-AGUAS CALVO PLUS S.L.U.",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2024-4617488",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0302232",
+     "issue_date": "2024-02-01",
+     "due_date": "2024-03-02",
+     "party": "Aguas Calvo Plus S.L.U.",
+     "currency": "EUR",
+     "total": "2810.83",
+     "po": "",
+     "answer": true,
+     "allocated": "2810.83"
+    },
+    {
+     "item_id": "ARI-2024-3610144",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0300040",
+     "issue_date": "2024-01-02",
+     "due_date": "2024-02-01",
+     "party": "Aguas Calvo Plus S.L.U.",
+     "currency": "EUR",
+     "total": "2810.83",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2024-6208017",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0304879",
+     "issue_date": "2024-03-01",
+     "due_date": "2024-03-31",
+     "party": "Aguas Calvo Plus S.L.U.",
+     "currency": "EUR",
+     "total": "2810.83",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0079986,ARI-2024-4617488,2810.83,,"
+  },
+  {
+   "segment": "ar_1toN_remittance",
+   "group": "one_to_many",
+   "bank": {
+    "bank_txn_id": "BT-2024-0079254",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2024-03-21",
+    "value_date": "2024-03-21",
+    "amount": "23152.21",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "AVISO 8826032134",
+    "text": "TRANSFERENCIAS WELLNESS LOMASECA S.A. | WELLNESS L AVISO 8826032134",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2023-2735920",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0221072",
+     "issue_date": "2023-12-01",
+     "due_date": "2024-02-29",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "2227.34",
+     "po": "4572534239",
+     "answer": true,
+     "allocated": "2227.34"
+    },
+    {
+     "item_id": "ARI-2023-4049051",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0221805",
+     "issue_date": "2023-12-15",
+     "due_date": "2024-03-14",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "3697.66",
+     "po": "4557002843",
+     "answer": true,
+     "allocated": "3697.66"
+    },
+    {
+     "item_id": "ARI-2023-7471819",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0221629",
+     "issue_date": "2023-12-13",
+     "due_date": "2024-03-12",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "3433.31",
+     "po": "4549069642",
+     "answer": true,
+     "allocated": "3433.31"
+    },
+    {
+     "item_id": "ARI-2023-8662719",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0220329",
+     "issue_date": "2023-11-21",
+     "due_date": "2024-02-19",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "8932.87",
+     "po": "4521991151",
+     "answer": true,
+     "allocated": "8932.87"
+    },
+    {
+     "item_id": "ARI-2023-9921555",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0221877",
+     "issue_date": "2023-12-18",
+     "due_date": "2024-03-17",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "4861.03",
+     "po": "4583386707",
+     "answer": true,
+     "allocated": "4861.03"
+    },
+    {
+     "item_id": "ARI-2024-6761587",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0201219",
+     "issue_date": "2024-01-19",
+     "due_date": "2024-04-18",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "23646.61",
+     "po": "4598610100",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2022-6367462",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0219026",
+     "issue_date": "2022-10-19",
+     "due_date": "2023-01-17",
+     "party": "Wellness Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "23709.65",
+     "po": "4593112177",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "remittance",
+     "file": "remittance_advices/ES01/RA_20240321_WELLNESSLOMA_862193.txt",
+     "document": "Wellness Lomaseca S.A.",
+     "lines": [
+      "From: cuentas.pagar@wellnessloma.example",
+      "To: cobros@valtermia.example",
+      "Date: Thu, 21 Mar 2024 09:32:00 +0100",
+      "Subject: Aviso de pago 8826032134",
+      "Buenos días,",
+      "Les informamos de que hemos ordenado una transferencia por importe de 23.152,21 EUR con fecha 21/03/2024 que liquida los siguientes documentos:",
+      "  FV23-0220329       21/11/23        8.932,87",
+      "  FV23-0221629       13/12/23        3.433,31",
+      "  FV23-0221805       15/12/23        3.697,66",
+      "  FV23-0221072       01/12/23        2.227,34",
+      "  FV23-0221877       18/12/23        4.861,03",
+      "Saludos cordiales,",
+      "Wellness Lomaseca S.A."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0079254,ARI-2023-2735920,2227.34,,\nBT-2024-0079254,ARI-2023-4049051,3697.66,,\nBT-2024-0079254,ARI-2023-7471819,3433.31,,\nBT-2024-0079254,ARI-2023-8662719,8932.87,,\nBT-2024-0079254,ARI-2023-9921555,4861.03,,"
+  },
+  {
+   "segment": "ar_1toN_credit_note",
+   "group": "one_to_many",
+   "bank": {
+    "bank_txn_id": "BT-2024-0114618",
+    "entity": "ES01",
+    "account_id": "ES01-RIBA-EUR",
+    "bank": "RIBA",
+    "statement_format": "n43",
+    "booking_date": "2024-04-24",
+    "value_date": "2024-04-24",
+    "amount": "1060.25",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "011",
+    "ref1": "",
+    "ref2": "20240424888239",
+    "text": "TRANSFERENCIA DE PFH HIDROTECNIA S.L. | CONCEPTO: FRAS FV24-04064 | ORDENANTE ES9094384808826923583085",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARC-2024-5173960",
+     "kind": "AR_CREDIT_NOTE",
+     "entity": "ES01",
+     "number": "AB24-0400149",
+     "issue_date": "2024-03-28",
+     "due_date": "",
+     "party": "PFH Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "-187.09",
+     "po": "",
+     "related": "FV24-0406423",
+     "answer": true,
+     "allocated": "187.09"
+    },
+    {
+     "item_id": "ARI-2024-2643573",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0406423",
+     "issue_date": "2024-03-25",
+     "due_date": "2024-04-24",
+     "party": "PFH Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "1247.34",
+     "po": "",
+     "answer": true,
+     "allocated": "1247.34"
+    },
+    {
+     "item_id": "ARI-2021-7274891",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0405100",
+     "issue_date": "2021-05-17",
+     "due_date": "2021-06-16",
+     "party": "PFH Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "653.61",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2024-3284912",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0404900",
+     "issue_date": "2024-03-06",
+     "due_date": "2024-04-05",
+     "party": "PFH Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "353.76",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0114618,ARC-2024-5173960,187.09,,\nBT-2024-0114618,ARI-2024-2643573,1247.34,,"
+  },
+  {
+   "segment": "ar_1toN_text",
+   "group": "one_to_many",
+   "bank": {
+    "bank_txn_id": "BT-2023-0043608",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2023-02-14",
+    "value_date": "2023-02-16",
+    "amount": "18786.94",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "FATURA FV22-0519",
+    "text": "TRANSFERENCIAS RBA AGUAS S.A. | RBA AGUAS  FATURA FV22-0519411 0516064",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-2089315",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0516064",
+     "issue_date": "2022-09-29",
+     "due_date": "2022-11-28",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "7694.41",
+     "po": "",
+     "answer": true,
+     "allocated": "7694.41"
+    },
+    {
+     "item_id": "ARI-2022-5688609",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0517106",
+     "issue_date": "2022-10-14",
+     "due_date": "2022-12-13",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "1669.16",
+     "po": "PED-17379",
+     "answer": true,
+     "allocated": "1669.16"
+    },
+    {
+     "item_id": "ARI-2022-6884744",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0519411",
+     "issue_date": "2022-11-29",
+     "due_date": "2023-01-28",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "8973.58",
+     "po": "2021/6095",
+     "answer": true,
+     "allocated": "8973.58"
+    },
+    {
+     "item_id": "ARI-2022-9229749",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0520126",
+     "issue_date": "2022-12-08",
+     "due_date": "2023-02-06",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "449.79",
+     "po": "",
+     "answer": true,
+     "allocated": "449.79"
+    },
+    {
+     "item_id": "ARI-2021-8210709",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0501699",
+     "issue_date": "2021-04-07",
+     "due_date": "2021-06-06",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "5738.06",
+     "po": "PED-45689",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2023-6759073",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0502012",
+     "issue_date": "2023-02-02",
+     "due_date": "2023-04-03",
+     "party": "RBÁ Águas S.A.",
+     "currency": "EUR",
+     "total": "3585.38",
+     "po": "2024/1866",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0043608,ARI-2022-2089315,7694.41,,\nBT-2023-0043608,ARI-2022-5688609,1669.16,,\nBT-2023-0043608,ARI-2022-6884744,8973.58,,\nBT-2023-0043608,ARI-2022-9229749,449.79,,"
+  },
+  {
+   "segment": "ar_instalment",
+   "group": "many_to_one",
+   "bank": {
+    "bank_txn_id": "BT-2024-0285801",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2024-09-26",
+    "value_date": "2024-09-26",
+    "amount": "642.98",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "PLAZO 2/3 FRA FV",
+    "text": "TRANSF. A SU FAVOR | 05899212-PARRA CONSTRUCCIONES S.L. | PLAZO 2/3 FRA FV24-0415058",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2024-0964018",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0415058",
+     "issue_date": "2024-06-27",
+     "due_date": "2024-08-26",
+     "party": "Parra Construcciones S.L.",
+     "currency": "EUR",
+     "total": "1928.95",
+     "po": "PED-31517",
+     "answer": true,
+     "allocated": "642.98"
+    },
+    {
+     "item_id": "ARI-2024-0331773",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0419023",
+     "issue_date": "2024-08-27",
+     "due_date": "2024-10-26",
+     "party": "Parra Construcciones S.L.",
+     "currency": "EUR",
+     "total": "657.79",
+     "po": "PED-62945",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2024-7642810",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0418314",
+     "issue_date": "2024-08-13",
+     "due_date": "2024-10-12",
+     "party": "Parra Construcciones S.L.",
+     "currency": "EUR",
+     "total": "661.36",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/ES01/ARI_FV240415058.pdf",
+     "document": "FV24-0415058",
+     "lines": [
+      "Forma de pago: 3 vencimientos a 60/90/120 días (642,98 / 642,98 / 642,99 EUR). Pago a cuenta por plazos según contrato."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0285801,ARI-2024-0964018,642.98,,PARTIAL"
+  },
+  {
+   "segment": "ar_partial",
+   "group": "many_to_one",
+   "bank": {
+    "bank_txn_id": "BT-2022-0212699",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR-2",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2022-08-04",
+    "value_date": "2022-08-04",
+    "amount": "205.62",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "FRA. FV22-021",
+    "text": "TRANSFERENCIA SEPA | 00120375-CBH HOTELES S.L. | FRA. FV22-021",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-5057502",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0214746",
+     "issue_date": "2022-08-03",
+     "due_date": "2022-08-03",
+     "party": "CBH Hoteles S.L.",
+     "currency": "EUR",
+     "total": "822.51",
+     "po": "",
+     "answer": true,
+     "allocated": "205.62"
+    },
+    {
+     "item_id": "ARC-2022-5978872",
+     "kind": "AR_CREDIT_NOTE",
+     "entity": "ES01",
+     "number": "AB22-0200119",
+     "issue_date": "2022-03-30",
+     "due_date": "",
+     "party": "CBH Hoteles S.L.",
+     "currency": "EUR",
+     "total": "-877.41",
+     "po": "",
+     "related": "FV22-0204064",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0212699,ARI-2022-5057502,205.62,,PARTIAL"
+  },
+  {
+   "segment": "ar_short_discount",
+   "group": "short",
+   "bank": {
+    "bank_txn_id": "BT-2023-0056753",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2023-02-28",
+    "value_date": "2023-02-28",
+    "amount": "1821.05",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "PAGO FRA. FV23-0",
+    "text": "TRANSFERENCIAS CONSTRUCCIONES LOMASEC | CONSTRUCCI PAGO FRA. FV23-0203311",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2023-7575593",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0203311",
+     "issue_date": "2023-02-23",
+     "due_date": "2023-03-25",
+     "party": "Construcciones Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "1858.21",
+     "po": "",
+     "answer": true,
+     "allocated": "1858.21"
+    },
+    {
+     "item_id": "ARI-2021-5966876",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0203204",
+     "issue_date": "2021-04-29",
+     "due_date": "2021-05-29",
+     "party": "Construcciones Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "1950.67",
+     "po": "OC624206",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-4062842",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0204342",
+     "issue_date": "2021-05-13",
+     "due_date": "2021-06-12",
+     "party": "Construcciones Lomaseca S.A.",
+     "currency": "EUR",
+     "total": "1633.86",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0056753,ARI-2023-7575593,1858.21,,SHORT_DISCOUNT"
+  },
+  {
+   "segment": "ar_short_bank_charges",
+   "group": "short",
+   "bank": {
+    "bank_txn_id": "BT-2021-0056518",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2021-08-31",
+    "value_date": "2021-09-02",
+    "amount": "1894.44",
+    "currency": "EUR",
+    "bank_code": "13",
+    "bank_subcode": "139",
+    "ref1": "",
+    "ref2": "INVOICE FV21-031",
+    "text": "TRANSFER. EN DIV. | GFBIJXX -THOMPSON & COOPER OU",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2021-7010177",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0310844",
+     "issue_date": "2021-07-20",
+     "due_date": "2021-08-19",
+     "party": "Thompson & Cooper Outdoor Living Ltd",
+     "currency": "EUR",
+     "total": "1919.44",
+     "po": "",
+     "answer": true,
+     "allocated": "1919.44"
+    },
+    {
+     "item_id": "ARI-2021-5894931",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0312666",
+     "issue_date": "2021-08-17",
+     "due_date": "2021-09-16",
+     "party": "Thompson & Cooper Outdoor Living Ltd",
+     "currency": "EUR",
+     "total": "1923.39",
+     "po": "2023/0283",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-5083408",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0305877",
+     "issue_date": "2021-05-19",
+     "due_date": "2021-06-18",
+     "party": "Thompson & Cooper Outdoor Living Ltd",
+     "currency": "EUR",
+     "total": "2008.02",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2021-0056518,ARI-2021-7010177,1919.44,,SHORT_BANK_CHARGES"
+  },
+  {
+   "segment": "ar_short_withholding",
+   "group": "short",
+   "bank": {
+    "bank_txn_id": "BT-2025-0129632",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2025-05-02",
+    "value_date": "2025-05-02",
+    "amount": "5510.79",
+    "currency": "EUR",
+    "bank_code": "13",
+    "bank_subcode": "139",
+    "ref1": "",
+    "ref2": "FACT FV25-050538",
+    "text": "TRANSFER. EN DIV. | DAJBAHXX -BIEN-ETRE GUTIERREZ",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2025-3425181",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0504727",
+     "issue_date": "2025-03-12",
+     "due_date": "2025-04-11",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "1300.03",
+     "po": "OC233501",
+     "answer": true,
+     "allocated": "1300.03"
+    },
+    {
+     "item_id": "ARI-2025-4280529",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0503491",
+     "issue_date": "2025-02-27",
+     "due_date": "2025-03-29",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "1058.98",
+     "po": "2022/1859",
+     "answer": true,
+     "allocated": "1058.98"
+    },
+    {
+     "item_id": "ARI-2025-6785248",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0505308",
+     "issue_date": "2025-03-21",
+     "due_date": "2025-04-20",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "3015.93",
+     "po": "PED-41351",
+     "answer": true,
+     "allocated": "3015.93"
+    },
+    {
+     "item_id": "ARI-2025-9037787",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0505385",
+     "issue_date": "2025-03-24",
+     "due_date": "2025-04-23",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "748.16",
+     "po": "2025/5937",
+     "answer": true,
+     "allocated": "748.16"
+    },
+    {
+     "item_id": "ARI-2021-3864657",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0500263",
+     "issue_date": "2021-03-01",
+     "due_date": "2021-03-31",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "5763.05",
+     "po": "OC359653",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-4943108",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0501756",
+     "issue_date": "2021-04-08",
+     "due_date": "2021-05-08",
+     "party": "Bien-Être Gutiérrez SA",
+     "currency": "EUR",
+     "total": "4511.30",
+     "po": "2021/9656",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0129632,ARI-2025-3425181,1300.03,,SHORT_WITHHOLDING\nBT-2025-0129632,ARI-2025-4280529,1058.98,,SHORT_WITHHOLDING\nBT-2025-0129632,ARI-2025-6785248,3015.93,,SHORT_WITHHOLDING\nBT-2025-0129632,ARI-2025-9037787,748.16,,SHORT_WITHHOLDING"
+  },
+  {
+   "segment": "ar_short_dispute",
+   "group": "short",
+   "bank": {
+    "bank_txn_id": "BT-2023-0019380",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2023-01-23",
+    "value_date": "2023-01-23",
+    "amount": "54802.29",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "PAGO PROV REM/20",
+    "text": "TRANSFERENCIAS VIDAL Y SERRANO WELLNE | VIDAL Y SE PAGO PROV REM/2023/0385",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-2933955",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0116485",
+     "issue_date": "2022-10-24",
+     "due_date": "2022-12-23",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "3941.95",
+     "po": "4556890238",
+     "answer": true,
+     "allocated": "3153.56"
+    },
+    {
+     "item_id": "ARI-2022-6524843",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0117469",
+     "issue_date": "2022-11-07",
+     "due_date": "2023-01-06",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "7974.29",
+     "po": "4584141899",
+     "answer": true,
+     "allocated": "7974.29"
+    },
+    {
+     "item_id": "ARI-2022-6713634",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0117582",
+     "issue_date": "2022-11-09",
+     "due_date": "2023-01-08",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "15624.49",
+     "po": "4549330512",
+     "answer": true,
+     "allocated": "10937.15"
+    },
+    {
+     "item_id": "ARI-2022-6919237",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0117811",
+     "issue_date": "2022-11-16",
+     "due_date": "2023-01-15",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "17208.73",
+     "po": "4519614248",
+     "answer": true,
+     "allocated": "17208.73"
+    },
+    {
+     "item_id": "ARI-2022-7829568",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0118144",
+     "issue_date": "2022-11-24",
+     "due_date": "2023-01-23",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "15528.56",
+     "po": "4581377699",
+     "answer": true,
+     "allocated": "15528.56"
+    },
+    {
+     "item_id": "ARI-2022-9226759",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0119457",
+     "issue_date": "2022-12-20",
+     "due_date": "2023-02-18",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "56600.29",
+     "po": "4539435119",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2022-8236227",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0117381",
+     "issue_date": "2022-11-03",
+     "due_date": "2023-01-02",
+     "party": "Vidal y Serrano Wellness S.Coop.",
+     "currency": "EUR",
+     "total": "57613.97",
+     "po": "4555898542",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0019380,ARI-2022-2933955,3153.56,,SHORT_DISPUTE\nBT-2023-0019380,ARI-2022-6524843,7974.29,,\nBT-2023-0019380,ARI-2022-6713634,10937.15,,SHORT_DISPUTE\nBT-2023-0019380,ARI-2022-6919237,17208.73,,\nBT-2023-0019380,ARI-2022-7829568,15528.56,,"
+  },
+  {
+   "segment": "ar_overpayment",
+   "group": "over",
+   "bank": {
+    "bank_txn_id": "BT-2021-0169330",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2021-12-31",
+    "value_date": "2021-12-31",
+    "amount": "5859.25",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "FRA FV21-0215074",
+    "text": "TRANSFERENCIAS CASTROLARGO AGUAS S.L. | CASTROLARG FRA FV21-0215074",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2021-2169966",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0215074",
+     "issue_date": "2021-11-15",
+     "due_date": "2021-12-15",
+     "party": "Castrolargo Aguas S.L.",
+     "currency": "EUR",
+     "total": "5809.25",
+     "po": "",
+     "answer": true,
+     "allocated": "5809.25"
+    },
+    {
+     "item_id": "ARI-2021-6226774",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0202618",
+     "issue_date": "2021-04-20",
+     "due_date": "2021-05-20",
+     "party": "Castrolargo Aguas S.L.",
+     "currency": "EUR",
+     "total": "1290.91",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-3189306",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0200694",
+     "issue_date": "2021-03-12",
+     "due_date": "2021-04-11",
+     "party": "Castrolargo Aguas S.L.",
+     "currency": "EUR",
+     "total": "844.19",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2021-0169330,ARI-2021-2169966,5809.25,,OVERPAYMENT"
+  },
+  {
+   "segment": "ar_duplicate_payment",
+   "group": "over",
+   "bank": {
+    "bank_txn_id": "BT-2022-0338598",
+    "entity": "ES01",
+    "account_id": "ES01-RIBA-EUR",
+    "bank": "RIBA",
+    "statement_format": "n43",
+    "booking_date": "2022-12-09",
+    "value_date": "2022-12-09",
+    "amount": "413.69",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "011",
+    "ref1": "",
+    "ref2": "NOTPROVIDED",
+    "text": "TRANSFERENCIA DE NAVALCEDRO MANTENIMIE | NTOS S.A. | CONCEPTO: TRANSFERENCIA",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-3158553",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0324748",
+     "issue_date": "2022-11-07",
+     "due_date": "2022-12-07",
+     "party": "Navalcedro Mantenimientos S.A.",
+     "currency": "EUR",
+     "total": "413.69",
+     "po": "",
+     "answer": true,
+     "allocated": "413.69"
+    },
+    {
+     "item_id": "ARI-2022-5314767",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0325350",
+     "issue_date": "2022-11-16",
+     "due_date": "2022-12-16",
+     "party": "Navalcedro Mantenimientos S.A.",
+     "currency": "EUR",
+     "total": "406.08",
+     "po": "PED-53182",
+     "answer": false
+    },
+    {
+     "item_id": "ARC-2022-6809690",
+     "kind": "AR_CREDIT_NOTE",
+     "entity": "ES01",
+     "number": "AB22-0300500",
+     "issue_date": "2022-08-19",
+     "due_date": "",
+     "party": "Navalcedro Mantenimientos S.A.",
+     "currency": "EUR",
+     "total": "-344.46",
+     "po": "",
+     "related": "FV22-0317562",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0338598,ARI-2022-3158553,413.69,,DUPLICATE_PAYMENT"
+  },
+  {
+   "segment": "ar_fx",
+   "group": "fx",
+   "bank": {
+    "bank_txn_id": "BT-2021-0141146",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2021-11-30",
+    "value_date": "2021-12-01",
+    "amount": "1413.80",
+    "currency": "EUR",
+    "bank_code": "13",
+    "bank_subcode": "139",
+    "ref1": "",
+    "ref2": "PAYMENT",
+    "text": "TRANSFER. EN DIV. | DEBHBJXX -OUTDOOR LIVING NORTE",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "1610.69",
+    "orig_currency": "USD"
+   },
+   "items": [
+    {
+     "item_id": "ARI-2021-6516287",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0314574",
+     "issue_date": "2021-09-16",
+     "due_date": "2021-11-15",
+     "party": "Outdoor Living Norte Ltd",
+     "currency": "USD",
+     "total": "1610.69",
+     "po": "OC520538",
+     "answer": true,
+     "allocated": "1610.69"
+    },
+    {
+     "item_id": "ARI-2021-0317325",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0317008",
+     "issue_date": "2021-10-20",
+     "due_date": "2021-12-19",
+     "party": "Outdoor Living Norte Ltd",
+     "currency": "USD",
+     "total": "812.12",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-8425556",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0317041",
+     "issue_date": "2021-10-20",
+     "due_date": "2021-12-19",
+     "party": "Outdoor Living Norte Ltd",
+     "currency": "USD",
+     "total": "4191.78",
+     "po": "OC754130",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2021-0141146,ARI-2021-6516287,1610.69,,FX_DIFFERENCE"
+  },
+  {
+   "segment": "ar_third_party_parent",
+   "group": "third_party",
+   "bank": {
+    "bank_txn_id": "BT-2024-0283540",
+    "entity": "ES01",
+    "account_id": "ES01-RIBA-EUR",
+    "bank": "RIBA",
+    "statement_format": "n43",
+    "booking_date": "2024-09-25",
+    "value_date": "2024-09-25",
+    "amount": "23450.78",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "011",
+    "ref1": "",
+    "ref2": "PAGO FRA. FV24-0",
+    "text": "TRANSFERENCIA DE SPA MORA S.L.U. | CONCEPTO: PAGO FRA. FV24-0511717 FV24- | 0511465 FV24-0514267 FV24-0514819",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2024-1424134",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0511717",
+     "issue_date": "2024-06-19",
+     "due_date": "2024-07-19",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "5677.82",
+     "po": "",
+     "answer": true,
+     "allocated": "5677.82"
+    },
+    {
+     "item_id": "ARI-2024-3597848",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0514819",
+     "issue_date": "2024-08-05",
+     "due_date": "2024-09-04",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "6683.96",
+     "po": "PED-31391",
+     "answer": true,
+     "allocated": "6683.96"
+    },
+    {
+     "item_id": "ARI-2024-5241984",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0514267",
+     "issue_date": "2024-07-31",
+     "due_date": "2024-08-30",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "6092.47",
+     "po": "OC656516",
+     "answer": true,
+     "allocated": "6092.47"
+    },
+    {
+     "item_id": "ARI-2024-5870370",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0511465",
+     "issue_date": "2024-06-14",
+     "due_date": "2024-07-14",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "4996.53",
+     "po": "2021/3942",
+     "answer": true,
+     "allocated": "4996.53"
+    },
+    {
+     "item_id": "ARI-2024-5765639",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0511932",
+     "issue_date": "2024-06-21",
+     "due_date": "2024-07-21",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "8049.82",
+     "po": "PED-49439",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-0480748",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0504276",
+     "issue_date": "2021-05-21",
+     "due_date": "2021-06-20",
+     "party": "Aguas Ortiz S.L.",
+     "currency": "EUR",
+     "total": "6856.39",
+     "po": "PED-78382",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0283540,ARI-2024-1424134,5677.82,,\nBT-2024-0283540,ARI-2024-3597848,6683.96,,\nBT-2024-0283540,ARI-2024-5241984,6092.47,,\nBT-2024-0283540,ARI-2024-5870370,4996.53,,"
+  },
+  {
+   "segment": "ar_third_party_agency",
+   "group": "third_party",
+   "bank": {
+    "bank_txn_id": "BT-2022-0067791",
+    "entity": "MA01",
+    "account_id": "MA01-LORV-MAD",
+    "bank": "LORV",
+    "statement_format": "mt940",
+    "booking_date": "2022-03-14",
+    "value_date": "2022-03-14",
+    "amount": "11986.18",
+    "currency": "MAD",
+    "bank_code": "NTRF",
+    "bank_subcode": "",
+    "ref1": "NONREF",
+    "ref2": "LO220739523937",
+    "text": "VIR SEPA RECU /DE RECOBROS ÁGORA, S.L. /MOTIF EXPTE 45553 TERESA IGLESIAS GUTI 10 /REF ",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-4147549",
+     "kind": "AR_INVOICE",
+     "entity": "MA01",
+     "number": "FA220100793",
+     "issue_date": "2022-02-11",
+     "due_date": "2022-03-13",
+     "party": "Teresa Iglesias Gutiérrez",
+     "currency": "MAD",
+     "total": "11986.18",
+     "po": "",
+     "answer": true,
+     "allocated": "11986.18"
+    },
+    {
+     "item_id": "ARC-2022-6554608",
+     "kind": "AR_CREDIT_NOTE",
+     "entity": "MA01",
+     "number": "AV220100025",
+     "issue_date": "2022-02-11",
+     "due_date": "",
+     "party": "Teresa Iglesias Gutiérrez",
+     "currency": "MAD",
+     "total": "-11098.32",
+     "po": "",
+     "related": "FA220100644",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2022-6022506",
+     "kind": "AR_INVOICE",
+     "entity": "MA01",
+     "number": "FA220100644",
+     "issue_date": "2022-02-04",
+     "due_date": "2022-03-06",
+     "party": "Teresa Iglesias Gutiérrez",
+     "currency": "MAD",
+     "total": "11098.32",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/MA01/ARI_FA220100793.pdf",
+     "document": "FA220100793",
+     "lines": [
+      "This invoice cancels and replaces invoice FA220100644 dated 04/02/2022. Do not pay both."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0067791,ARI-2022-4147549,11986.18,,"
+  },
+  {
+   "segment": "ar_third_party_confirming",
+   "group": "third_party",
+   "bank": {
+    "bank_txn_id": "BT-2022-0056648",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2022-03-04",
+    "value_date": "2022-03-04",
+    "amount": "1150.64",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "433",
+    "ref1": "",
+    "ref2": "ORD. PRD DEPURAC",
+    "text": "FATIR098351788 | ORD. PRD DEPURACION S.L.U. FRA 0502021 |  VTO 040322",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-7123014",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0502021",
+     "issue_date": "2022-02-02",
+     "due_date": "2022-03-04",
+     "party": "PRD Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "1150.64",
+     "po": "PED-22535",
+     "answer": true,
+     "allocated": "1150.64"
+    },
+    {
+     "item_id": "ARI-2021-1969029",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0501459",
+     "issue_date": "2021-04-02",
+     "due_date": "2021-05-02",
+     "party": "PRD Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "1187.43",
+     "po": "2026/6828",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-7900375",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0501937",
+     "issue_date": "2021-04-12",
+     "due_date": "2021-05-12",
+     "party": "PRD Depuración S.L.U.",
+     "currency": "EUR",
+     "total": "1404.47",
+     "po": "PED-19741",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0056648,ARI-2022-7123014,1150.64,,"
+  },
+  {
+   "segment": "ar_dd_returned",
+   "group": "returns",
+   "bank": {
+    "bank_txn_id": "BT-2025-0153899",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2025-05-23",
+    "value_date": "2025-05-23",
+    "amount": "-736.20",
+    "currency": "EUR",
+    "bank_code": "14",
+    "bank_subcode": "021",
+    "ref1": "",
+    "ref2": "DEV01250516831",
+    "text": "DEVOL.RECIBOS S/REMESA FECHA | MANDATO VTM-ES-0004847",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2025-4529450",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV25-0107270",
+     "issue_date": "2025-04-15",
+     "due_date": "2025-05-15",
+     "party": "MLS Saneamientos S.Coop.",
+     "currency": "EUR",
+     "total": "736.20",
+     "po": "",
+     "answer": true,
+     "allocated": "736.20"
+    },
+    {
+     "item_id": "ARI-2021-7174319",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0100537",
+     "issue_date": "2021-03-10",
+     "due_date": "2021-04-09",
+     "party": "MLS Saneamientos S.Coop.",
+     "currency": "EUR",
+     "total": "601.95",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-3135430",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0102410",
+     "issue_date": "2021-04-26",
+     "due_date": "2021-05-26",
+     "party": "MLS Saneamientos S.Coop.",
+     "currency": "EUR",
+     "total": "882.40",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0153899,ARI-2025-4529450,736.20,,RETURNED"
+  },
+  {
+   "segment": "ar_cheque_returned",
+   "group": "returns",
+   "bank": {
+    "bank_txn_id": "BT-2021-0073688",
+    "entity": "US01",
+    "account_id": "US01-HPNB-USD",
+    "bank": "HPNB",
+    "statement_format": "camt053",
+    "booking_date": "2021-09-20",
+    "value_date": "2021-09-20",
+    "amount": "-237.34",
+    "currency": "USD",
+    "bank_code": "PMNT/RCHQ/UPCQ",
+    "bank_subcode": "",
+    "ref1": "HPNB2109203792934",
+    "ref2": "",
+    "text": "RETURNED ITEM CHK 0269257 NSF",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2021-3912217",
+     "kind": "AR_INVOICE",
+     "entity": "US01",
+     "number": "1052106551",
+     "issue_date": "2021-07-21",
+     "due_date": "2021-08-20",
+     "party": "Charles Ward",
+     "currency": "USD",
+     "total": "237.34",
+     "po": "",
+     "answer": true,
+     "allocated": "237.34"
+    },
+    {
+     "item_id": "ARI-2021-1097852",
+     "kind": "AR_INVOICE",
+     "entity": "US01",
+     "number": "1052107356",
+     "issue_date": "2021-08-06",
+     "due_date": "2021-09-05",
+     "party": "Charles Ward",
+     "currency": "USD",
+     "total": "246.94",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-4762330",
+     "kind": "AR_INVOICE",
+     "entity": "US01",
+     "number": "1052101710",
+     "issue_date": "2021-04-14",
+     "due_date": "2021-05-14",
+     "party": "Charles Ward",
+     "currency": "USD",
+     "total": "281.25",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2021-0073688,ARI-2021-3912217,237.34,,RETURNED"
+  },
+  {
+   "segment": "ar_dd_batch",
+   "group": "aggregates",
+   "bank": {
+    "bank_txn_id": "BT-2023-0235538",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2023-08-16",
+    "value_date": "2023-08-16",
+    "amount": "2019.49",
+    "currency": "EUR",
+    "bank_code": "03",
+    "bank_subcode": "045",
+    "ref1": "",
+    "ref2": "REM03230816473",
+    "text": "ABONO REMESA SEPA CORE 03230816473 | PRESENTADA 230816 7 RECIBOS",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2023-2284329",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0318183",
+     "issue_date": "2023-07-28",
+     "due_date": "2023-08-12",
+     "party": "PVH Hoteles S.Coop.",
+     "currency": "EUR",
+     "total": "95.89",
+     "po": "",
+     "answer": true,
+     "allocated": "95.89"
+    },
+    {
+     "item_id": "ARI-2023-5052805",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0318251",
+     "issue_date": "2023-07-28",
+     "due_date": "2023-08-12",
+     "party": "Carmen Vidal Font",
+     "currency": "EUR",
+     "total": "201.88",
+     "po": "",
+     "answer": true,
+     "allocated": "201.88"
+    },
+    {
+     "item_id": "ARI-2023-6440902",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0317122",
+     "issue_date": "2023-07-13",
+     "due_date": "2023-08-12",
+     "party": "Jardines Fuenteclara S.L.",
+     "currency": "EUR",
+     "total": "211.63",
+     "po": "",
+     "answer": true,
+     "allocated": "211.63"
+    },
+    {
+     "item_id": "ARI-2023-7632490",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0318206",
+     "issue_date": "2023-07-28",
+     "due_date": "2023-08-12",
+     "party": "Construcciones Serrano S.L.U.",
+     "currency": "EUR",
+     "total": "741.52",
+     "po": "",
+     "answer": true,
+     "allocated": "741.52"
+    },
+    {
+     "item_id": "ARI-2023-7653161",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0317159",
+     "issue_date": "2023-07-13",
+     "due_date": "2023-08-12",
+     "party": "Espinosa Spa S.L.",
+     "currency": "EUR",
+     "total": "323.99",
+     "po": "OC219083",
+     "answer": true,
+     "allocated": "323.99"
+    },
+    {
+     "item_id": "ARI-2023-9381357",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0317187",
+     "issue_date": "2023-07-14",
+     "due_date": "2023-08-13",
+     "party": "Rocío Soriano Núñez",
+     "currency": "EUR",
+     "total": "71.26",
+     "po": "OC542989",
+     "answer": true,
+     "allocated": "71.26"
+    },
+    {
+     "item_id": "ARI-2023-9561742",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0317242",
+     "issue_date": "2023-07-14",
+     "due_date": "2023-08-13",
+     "party": "Suministros Campollano S.Coop.",
+     "currency": "EUR",
+     "total": "373.32",
+     "po": "2025/1024",
+     "answer": true,
+     "allocated": "373.32"
+    },
+    {
+     "item_id": "ARI-2023-6369795",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0317821",
+     "issue_date": "2023-07-24",
+     "due_date": "2023-08-23",
+     "party": "Suministros Campollano S.Coop.",
+     "currency": "EUR",
+     "total": "1020.09",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2023-3995713",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV23-0318095",
+     "issue_date": "2023-07-27",
+     "due_date": "2023-08-26",
+     "party": "Suministros Campollano S.Coop.",
+     "currency": "EUR",
+     "total": "495.46",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "batch",
+     "file": "direct_debit_batches/ES01_VLC_202308.csv",
+     "header": [
+      "end_to_end_id",
+      "debtor_name",
+      "amount",
+      "remittance_info"
+     ],
+     "rows": [
+      [
+       "03230816473-0001",
+       "Rocío Soriano Núñez",
+       "71.26",
+       "FV23-0317187"
+      ],
+      [
+       "03230816473-0002",
+       "Espinosa Spa S.L.",
+       "323.99",
+       "FV23-0317159"
+      ],
+      [
+       "03230816473-0003",
+       "Suministros Campollano S.Coop.",
+       "373.32",
+       "FV23-0317242"
+      ],
+      [
+       "03230816473-0004",
+       "Carmen Vidal Font",
+       "201.88",
+       "FV23-0318251"
+      ],
+      [
+       "03230816473-0005",
+       "Jardines Fuenteclara S.L.",
+       "211.63",
+       "FV23-0317122"
+      ],
+      [
+       "03230816473-0006",
+       "Construcciones Serrano S.L.U.",
+       "741.52",
+       "FV23-0318206"
+      ],
+      [
+       "03230816473-0007",
+       "PVH Hoteles S.Coop.",
+       "95.89",
+       "FV23-0318183"
+      ]
+     ],
+     "summary": {
+      "batch_id": "03230816473",
+      "collection_date": "2023-08-16",
+      "batch_total": "2019.49"
+     }
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0235538,ARI-2023-2284329,95.89,,\nBT-2023-0235538,ARI-2023-5052805,201.88,,\nBT-2023-0235538,ARI-2023-6440902,211.63,,\nBT-2023-0235538,ARI-2023-7632490,741.52,,\nBT-2023-0235538,ARI-2023-7653161,323.99,,\nBT-2023-0235538,ARI-2023-9381357,71.26,,\nBT-2023-0235538,ARI-2023-9561742,373.32,,"
+  },
+  {
+   "segment": "ar_card_settlement",
+   "group": "aggregates",
+   "bank": {
+    "bank_txn_id": "BT-2022-0296951",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR-2",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2022-10-28",
+    "value_date": "2022-11-01",
+    "amount": "1408.73",
+    "currency": "EUR",
+    "bank_code": "12",
+    "bank_subcode": "220",
+    "ref1": "",
+    "ref2": "COMERC 097759027",
+    "text": "LIQUIDACION REMESA DE COMERCIOS | COMERC 097759027 REM 9027221028477039",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-0058084",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005950",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "154.88",
+     "po": "",
+     "answer": true,
+     "allocated": "154.88"
+    },
+    {
+     "item_id": "ARI-2022-0574021",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005956",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "47.63",
+     "po": "",
+     "answer": true,
+     "allocated": "47.63"
+    },
+    {
+     "item_id": "ARI-2022-3334091",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005955",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "143.55",
+     "po": "",
+     "answer": true,
+     "allocated": "143.55"
+    },
+    {
+     "item_id": "ARI-2022-3506070",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005949",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "230.24",
+     "po": "",
+     "answer": true,
+     "allocated": "230.24"
+    },
+    {
+     "item_id": "ARI-2022-3850028",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005952",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "583.37",
+     "po": "",
+     "answer": true,
+     "allocated": "583.37"
+    },
+    {
+     "item_id": "ARI-2022-6782077",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW22-9005957",
+     "issue_date": "2022-10-26",
+     "due_date": "2022-10-26",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "269.07",
+     "po": "",
+     "answer": true,
+     "allocated": "269.07"
+    },
+    {
+     "item_id": "ARI-2021-5127621",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW21-9001070",
+     "issue_date": "2021-04-17",
+     "due_date": "2021-04-17",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "1422.92",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-9271929",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "TW21-9001127",
+     "issue_date": "2021-04-20",
+     "due_date": "2021-04-20",
+     "party": "CLIENTES WEB / TPV",
+     "currency": "EUR",
+     "total": "1429.17",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "batch",
+     "file": "card_settlements/ES01_202210.csv",
+     "header": [
+      "order_number",
+      "operation_date",
+      "gross",
+      "fee",
+      "net"
+     ],
+     "rows": [
+      [
+       "TW22-9005949",
+       "2022-10-26",
+       "230.24",
+       "3.22",
+       "227.02"
+      ],
+      [
+       "TW22-9005950",
+       "2022-10-26",
+       "154.88",
+       "2.17",
+       "152.71"
+      ],
+      [
+       "TW22-9005952",
+       "2022-10-26",
+       "583.37",
+       "8.17",
+       "575.20"
+      ],
+      [
+       "TW22-9005955",
+       "2022-10-26",
+       "143.55",
+       "2.01",
+       "141.54"
+      ],
+      [
+       "TW22-9005956",
+       "2022-10-26",
+       "47.63",
+       "0.67",
+       "46.96"
+      ],
+      [
+       "TW22-9005957",
+       "2022-10-26",
+       "269.07",
+       "3.77",
+       "265.30"
+      ]
+     ],
+     "summary": {
+      "settlement_id": "9027221028",
+      "settlement_date": "2022-10-28",
+      "acquirer": "Tarjetas Unidas"
+     }
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0296951,ARI-2022-0058084,154.88,,\nBT-2022-0296951,ARI-2022-0574021,47.63,,\nBT-2022-0296951,ARI-2022-3334091,143.55,,\nBT-2022-0296951,ARI-2022-3506070,230.24,,\nBT-2022-0296951,ARI-2022-3850028,583.37,,\nBT-2022-0296951,ARI-2022-6782077,269.07,,"
+  },
+  {
+   "segment": "ar_retention",
+   "group": "documents",
+   "bank": {
+    "bank_txn_id": "BT-2025-0016875",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR-2",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2025-01-20",
+    "value_date": "2025-01-20",
+    "amount": "25880.13",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "PEDIDO PISCINA",
+    "text": "TRANSF. A SU FAVOR | 40343324-ESPINOSA PISCINAS S.L. | PEDIDO PISCINA",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2024-4662389",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0425111",
+     "issue_date": "2024-11-19",
+     "due_date": "2025-01-18",
+     "party": "Espinosa Piscinas S.L.",
+     "currency": "EUR",
+     "total": "28755.70",
+     "po": "PED-47787",
+     "answer": true,
+     "allocated": "25880.13"
+    },
+    {
+     "item_id": "ARI-2021-7693127",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0400848",
+     "issue_date": "2021-03-16",
+     "due_date": "2021-05-15",
+     "party": "Espinosa Piscinas S.L.",
+     "currency": "EUR",
+     "total": "23582.33",
+     "po": "2025/9033",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-8880856",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0403095",
+     "issue_date": "2021-04-22",
+     "due_date": "2021-06-21",
+     "party": "Espinosa Piscinas S.L.",
+     "currency": "EUR",
+     "total": "12253.86",
+     "po": "2023/2515",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/ES01/ARI_FV240425111.pdf",
+     "document": "FV24-0425111",
+     "lines": [
+      "Retención en garantía del 10 % (2.875,57 EUR), liberable a la recepción definitiva (19/11/2025). Importe a pagar al vencimiento: 25.880,13 EUR."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0016875,ARI-2024-4662389,25880.13,,PARTIAL"
+  },
+  {
+   "segment": "ar_advance_deduction",
+   "group": "documents",
+   "bank": {
+    "bank_txn_id": "BT-2024-0293325",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2024-10-03",
+    "value_date": "2024-10-03",
+    "amount": "660.15",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "FRA. FV24-011327",
+    "text": "TRANSFERENCIAS FUENTES HIDROTECNIA S. | FUENTES HI FRA. FV24-0113278",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2024-6779506",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV24-0113278",
+     "issue_date": "2024-07-15",
+     "due_date": "2024-09-13",
+     "party": "Fuentes Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "943.07",
+     "po": "2021/6470",
+     "answer": true,
+     "allocated": "660.15"
+    },
+    {
+     "item_id": "ARI-2021-5806893",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0100619",
+     "issue_date": "2021-03-15",
+     "due_date": "2021-05-14",
+     "party": "Fuentes Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "703.81",
+     "po": "PED-51898",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-1817752",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0100456",
+     "issue_date": "2021-03-08",
+     "due_date": "2021-05-07",
+     "party": "Fuentes Hidrotecnia S.L.",
+     "currency": "EUR",
+     "total": "792.83",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/ES01/ARI_FV240113278.pdf",
+     "document": "FV24-0113278",
+     "lines": [
+      "A deducir anticipo recibido según proforma PF24-0100005 de 282,92 EUR. Importe neto a pagar 660,15 EUR."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0293325,ARI-2024-6779506,660.15,,PARTIAL"
+  },
+  {
+   "segment": "ar_replaced_invoice",
+   "group": "documents",
+   "bank": {
+    "bank_txn_id": "BT-2022-0102325",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR-2",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2022-04-20",
+    "value_date": "2022-04-20",
+    "amount": "2153.39",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "PAGO FRA. FV22-0",
+    "text": "TRANSFERENCIAS RIEGOS ORTIZ S.A. | RIEGOS ORT PAGO FRA. FV22-0103565",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-6827190",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0104090",
+     "issue_date": "2022-03-21",
+     "due_date": "2022-04-20",
+     "party": "Riegos Ortiz S.A.",
+     "currency": "EUR",
+     "total": "2153.39",
+     "po": "",
+     "answer": true,
+     "allocated": "2153.39"
+    },
+    {
+     "item_id": "ARI-2021-7191131",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0100653",
+     "issue_date": "2021-03-16",
+     "due_date": "2021-04-15",
+     "party": "Riegos Ortiz S.A.",
+     "currency": "EUR",
+     "total": "2201.90",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2021-9951889",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV21-0103047",
+     "issue_date": "2021-05-04",
+     "due_date": "2021-06-03",
+     "party": "Riegos Ortiz S.A.",
+     "currency": "EUR",
+     "total": "2034.36",
+     "po": "2026/9252",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/ES01/ARI_FV220104090.pdf",
+     "document": "FV22-0104090",
+     "lines": [
+      "Esta factura anula y sustituye a la factura FV22-0103565 de 09/03/2022, que queda sin efecto. No abonar ambas."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0102325,ARI-2022-6827190,2153.39,,"
+  },
+  {
+   "segment": "ar_new_iban",
+   "group": "documents",
+   "bank": {
+    "bank_txn_id": "BT-2022-0229943",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2022-08-24",
+    "value_date": "2022-08-24",
+    "amount": "553.20",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "532",
+    "ref1": "",
+    "ref2": "NOTPROVIDED",
+    "text": "TRANSFERENCIAS CLIMATIZACION PUERTO A | CLIMATIZAC CLIMATIZACION",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "ARI-2022-1705153",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0211839",
+     "issue_date": "2022-06-22",
+     "due_date": "2022-08-21",
+     "party": "Climatización Puerto Alcor S.A.",
+     "currency": "EUR",
+     "total": "553.20",
+     "po": "",
+     "answer": true,
+     "allocated": "553.20"
+    },
+    {
+     "item_id": "ARI-2022-3580798",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0214074",
+     "issue_date": "2022-07-27",
+     "due_date": "2022-09-25",
+     "party": "Climatización Puerto Alcor S.A.",
+     "currency": "EUR",
+     "total": "427.40",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "ARI-2022-1659952",
+     "kind": "AR_INVOICE",
+     "entity": "ES01",
+     "number": "FV22-0215096",
+     "issue_date": "2022-08-11",
+     "due_date": "2022-10-10",
+     "party": "Climatización Puerto Alcor S.A.",
+     "currency": "EUR",
+     "total": "370.15",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "notice",
+     "file": "pdfs/ES01/NOTICE_CES01001757_20220412.pdf",
+     "document": "2022-04-12",
+     "lines": [
+      "Climatización Puerto Alcor S.A.",
+      "12/04/2022",
+      "Cambio de cuenta bancaria",
+      "Muy señores nuestros: les comunicamos que a partir del 22/04/2022 nuestros pagos a su favor se realizarán desde la",
+      "cuenta ES4894832216827624819376, en sustitución de la anterior ES4194186038651193842889.",
+      "Atentamente,",
+      "Climatización Puerto Alcor S.A."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0229943,ARI-2022-1705153,553.20,,"
+  },
+  {
+   "segment": "ap_payment_single",
+   "group": "suppliers",
+   "bank": {
+    "bank_txn_id": "BT-2022-0158629",
+    "entity": "ES02",
+    "account_id": "ES02-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2022-06-10",
+    "value_date": "2022-06-10",
+    "amount": "-5054.50",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "102",
+    "ref1": "",
+    "ref2": "PR020022061001-0",
+    "text": "PAGO TRANSFERENCIAS | 2589-56-1354065-63 826268 000244",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "API-2022-7685409",
+     "kind": "AP_INVOICE",
+     "entity": "ES02",
+     "number": "22002201",
+     "issue_date": "2022-04-12",
+     "due_date": "2022-06-11",
+     "party": "Plásticos Aguirre S.L.U.",
+     "currency": "EUR",
+     "total": "5054.50",
+     "po": "5555489403",
+     "answer": true,
+     "allocated": "5054.50"
+    },
+    {
+     "item_id": "API-2021-6397227",
+     "kind": "AP_INVOICE",
+     "entity": "ES02",
+     "number": "21002053",
+     "issue_date": "2021-03-26",
+     "due_date": "2021-05-25",
+     "party": "Plásticos Aguirre S.L.U.",
+     "currency": "EUR",
+     "total": "3604.87",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "API-2021-4795121",
+     "kind": "AP_INVOICE",
+     "entity": "ES02",
+     "number": "21002063",
+     "issue_date": "2021-04-06",
+     "due_date": "2021-06-05",
+     "party": "Plásticos Aguirre S.L.U.",
+     "currency": "EUR",
+     "total": "3493.50",
+     "po": "4531857576",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0158629,API-2022-7685409,5054.50,,"
+  },
+  {
+   "segment": "ap_confirming",
+   "group": "suppliers",
+   "bank": {
+    "bank_txn_id": "BT-2025-0015152",
+    "entity": "ES01",
+    "account_id": "ES01-RIBA-EUR",
+    "bank": "RIBA",
+    "statement_format": "n43",
+    "booking_date": "2025-01-16",
+    "value_date": "2025-01-16",
+    "amount": "-3968.12",
+    "currency": "EUR",
+    "bank_code": "99",
+    "bank_subcode": "824",
+    "ref1": "",
+    "ref2": "CF010125012772",
+    "text": "PAGO CONFIRMING | REMESA CF010125012772 1 PROVEEDORES",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "API-2024-6668283",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2024-0082",
+     "issue_date": "2024-10-18",
+     "due_date": "2025-01-16",
+     "party": "Rotulación Montes S.L.U.",
+     "currency": "EUR",
+     "total": "3968.12",
+     "po": "5572982347",
+     "answer": true,
+     "allocated": "3968.12"
+    },
+    {
+     "item_id": "API-2024-1996461",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2024-0094",
+     "issue_date": "2024-12-16",
+     "due_date": "2025-03-16",
+     "party": "Rotulación Montes S.L.U.",
+     "currency": "EUR",
+     "total": "5742.78",
+     "po": "4583946661",
+     "answer": false
+    },
+    {
+     "item_id": "API-2025-5464161",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2025-0028",
+     "issue_date": "2025-01-08",
+     "due_date": "2025-04-08",
+     "party": "Rotulación Montes S.L.U.",
+     "currency": "EUR",
+     "total": "2173.14",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0015152,API-2024-6668283,3968.12,,"
+  },
+  {
+   "segment": "ap_factored",
+   "group": "suppliers",
+   "bank": {
+    "bank_txn_id": "BT-2022-0263982",
+    "entity": "ES00",
+    "account_id": "ES00-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2022-09-26",
+    "value_date": "2022-09-27",
+    "amount": "-26006.93",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "533",
+    "ref1": "",
+    "ref2": "PR000022092651-0",
+    "text": "TRANSFERENCIA A NORTE PAGOS CONFIRMING |  EFC",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "API-2022-1017387",
+     "kind": "AP_INVOICE",
+     "entity": "ES00",
+     "number": "FV-22-0144",
+     "issue_date": "2022-07-13",
+     "due_date": "2022-09-25",
+     "party": "Recambios Rubio S.L.",
+     "currency": "EUR",
+     "total": "11851.60",
+     "po": "",
+     "answer": true,
+     "allocated": "11851.60"
+    },
+    {
+     "item_id": "API-2022-2212834",
+     "kind": "AP_INVOICE",
+     "entity": "ES00",
+     "number": "FV-22-0130",
+     "issue_date": "2022-07-08",
+     "due_date": "2022-09-25",
+     "party": "Recambios Rubio S.L.",
+     "currency": "EUR",
+     "total": "11628.80",
+     "po": "4580800056",
+     "answer": true,
+     "allocated": "11628.80"
+    },
+    {
+     "item_id": "API-2022-3064323",
+     "kind": "AP_INVOICE",
+     "entity": "ES00",
+     "number": "FV-22-0150",
+     "issue_date": "2022-07-04",
+     "due_date": "2022-09-25",
+     "party": "Recambios Rubio S.L.",
+     "currency": "EUR",
+     "total": "2526.53",
+     "po": "",
+     "answer": true,
+     "allocated": "2526.53"
+    },
+    {
+     "item_id": "API-2021-3994637",
+     "kind": "AP_INVOICE",
+     "entity": "ES00",
+     "number": "FV-21-0018",
+     "issue_date": "2021-03-01",
+     "due_date": "2021-05-25",
+     "party": "Recambios Rubio S.L.",
+     "currency": "EUR",
+     "total": "24125.08",
+     "po": "4561934010",
+     "answer": false
+    },
+    {
+     "item_id": "API-2021-3529136",
+     "kind": "AP_INVOICE",
+     "entity": "ES00",
+     "number": "FV-21-0020",
+     "issue_date": "2021-03-23",
+     "due_date": "2021-05-25",
+     "party": "Recambios Rubio S.L.",
+     "currency": "EUR",
+     "total": "14890.71",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [
+    {
+     "kind": "pdf",
+     "file": "pdfs/ES00/API_SES00000079_FV220130.pdf",
+     "document": "FV-22-0130",
+     "lines": [
+      "El crédito representado por esta factura ha sido cedido a Norte Pagos Confirming EFC. El pago solo será liberatorio si se realiza a dicha entidad."
+     ]
+    }
+   ],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0263982,API-2022-1017387,11851.60,,\nBT-2022-0263982,API-2022-2212834,11628.80,,\nBT-2022-0263982,API-2022-3064323,2526.53,,"
+  },
+  {
+   "segment": "ap_direct_debit",
+   "group": "suppliers",
+   "bank": {
+    "bank_txn_id": "BT-2023-0017174",
+    "entity": "ES00",
+    "account_id": "ES00-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2023-01-18",
+    "value_date": "2023-01-22",
+    "amount": "-797.46",
+    "currency": "EUR",
+    "bank_code": "03",
+    "bank_subcode": "161",
+    "ref1": "",
+    "ref2": "260716957756",
+    "text": "PR6 RECAMBIOS S. | FRA 2022-0094 CONTRATO 957756",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [
+    {
+     "item_id": "API-2022-7895021",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2022-0094",
+     "issue_date": "2022-12-19",
+     "due_date": "2023-01-18",
+     "party": "PR6 Recambios S.L.U.",
+     "currency": "EUR",
+     "total": "797.46",
+     "po": "",
+     "answer": true,
+     "allocated": "797.46"
+    },
+    {
+     "item_id": "API-2021-8133291",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2021-0021",
+     "issue_date": "2021-05-19",
+     "due_date": "2021-06-18",
+     "party": "PR6 Recambios S.L.U.",
+     "currency": "EUR",
+     "total": "1025.12",
+     "po": "",
+     "answer": false
+    },
+    {
+     "item_id": "API-2021-8635587",
+     "kind": "AP_INVOICE",
+     "entity": "ES01",
+     "number": "2021-0009",
+     "issue_date": "2021-03-19",
+     "due_date": "2021-04-18",
+     "party": "PR6 Recambios S.L.U.",
+     "currency": "EUR",
+     "total": "1123.09",
+     "po": "",
+     "answer": false
+    }
+   ],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2023-0017174,API-2022-7895021,797.46,,"
+  },
+  {
+   "segment": "nonitem_bank_fees",
+   "group": "non_invoice",
+   "bank": {
+    "bank_txn_id": "BT-2024-0048021",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2024-02-20",
+    "value_date": "2024-02-20",
+    "amount": "-4.00",
+    "currency": "EUR",
+    "bank_code": "17",
+    "bank_subcode": "310",
+    "ref1": "",
+    "ref2": "214",
+    "text": "COMISION DEVOLUCION RECIBO VTM-ES-0006 | 214",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0048021,,,BANK_FEES,"
+  },
+  {
+   "segment": "nonitem_cash_pool",
+   "group": "non_invoice",
+   "bank": {
+    "bank_txn_id": "BT-2025-0123596",
+    "entity": "ES02",
+    "account_id": "ES02-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2025-04-25",
+    "value_date": "2025-04-25",
+    "amount": "-65706.25",
+    "currency": "EUR",
+    "bank_code": "99",
+    "bank_subcode": "867",
+    "ref1": "",
+    "ref2": "",
+    "text": "TRASPASO CASH POOLING NIVELACION SALDO",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2025-0123596,,,CASH_POOL,"
+  },
+  {
+   "segment": "nonitem_payroll",
+   "group": "non_invoice",
+   "bank": {
+    "bank_txn_id": "BT-2022-0027136",
+    "entity": "ES00",
+    "account_id": "ES00-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2022-01-31",
+    "value_date": "2022-01-31",
+    "amount": "-490465.74",
+    "currency": "EUR",
+    "bank_code": "15",
+    "bank_subcode": "820",
+    "ref1": "",
+    "ref2": "4799-55-2558802-",
+    "text": "PAG NOMINAS | 4799-55-2558802-30 NOMINAS 01/2022",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2022-0027136,,,PAYROLL,"
+  },
+  {
+   "segment": "nonitem_tax_payment",
+   "group": "non_invoice",
+   "bank": {
+    "bank_txn_id": "BT-2021-0102240",
+    "entity": "ES02",
+    "account_id": "ES02-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2021-10-20",
+    "value_date": "2021-10-20",
+    "amount": "-915937.75",
+    "currency": "EUR",
+    "bank_code": "03",
+    "bank_subcode": "435",
+    "ref1": "",
+    "ref2": "IMPUESTOS MOD 11",
+    "text": "IMPUESTOS MOD 111 202110",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2021-0102240,,,TAX_PAYMENT,"
+  },
+  {
+   "segment": "unidentified",
+   "group": "unidentified",
+   "bank": {
+    "bank_txn_id": "BT-2024-0018139",
+    "entity": "ES01",
+    "account_id": "ES01-MONC-EUR",
+    "bank": "MONC",
+    "statement_format": "n43",
+    "booking_date": "2024-01-18",
+    "value_date": "2024-01-20",
+    "amount": "70.98",
+    "currency": "EUR",
+    "bank_code": "02",
+    "bank_subcode": "778",
+    "ref1": "",
+    "ref2": "",
+    "text": "INGRESO EFECTIVO OFICINA 0340 | TRANSFERENCIA",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0018139,,,UNIDENTIFIED,UNIDENTIFIED"
+  },
+  {
+   "segment": "unidentified_lookalike",
+   "group": "unidentified",
+   "bank": {
+    "bank_txn_id": "BT-2024-0028014",
+    "entity": "ES01",
+    "account_id": "ES01-PENA-EUR",
+    "bank": "PENA",
+    "statement_format": "n43",
+    "booking_date": "2024-01-26",
+    "value_date": "2024-01-26",
+    "amount": "126.97",
+    "currency": "EUR",
+    "bank_code": "04",
+    "bank_subcode": "099",
+    "ref1": "",
+    "ref2": "PAGO",
+    "text": "TRANSFERENCIA SEPA | 61365977-MARIA VICENTE RUBIO | PAGO",
+    "counterparty_name": "",
+    "remittance_info": "",
+    "orig_amount": "",
+    "orig_currency": ""
+   },
+   "items": [],
+   "evidence": [],
+   "csv": "bank_txn_id,item_id,amount,category,exception\nBT-2024-0028014,,,UNIDENTIFIED,UNIDENTIFIED"
+  }
+ ]
+}

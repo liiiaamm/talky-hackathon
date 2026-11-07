@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data: everyone downloads it from the hackathon site (see README)
+data/*
+!data/*.md
+!data/examples.json
+!data/starter/
+
+# Generated
+out/
+models/
+*.csv.gz
+*.parquet
+*.joblib
+
+# Secrets: HK_TOKEN lives only in an environment variable
+.env
+*.token

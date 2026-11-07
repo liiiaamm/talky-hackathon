@@ -1,0 +1,78 @@
+
+## DD batches: batch_id found in bank text of a line with amount == batch_total (same account)
+ batches  linked_by_id  amount_eq
+   21072         21072      12505
+
+## DD rows: remittance_info == item document_number?  (and golden agreement)
+ dd_rows  doc_found
+  713554     642246
+
+## Card settlements: merchant_id in text and sum(gross) vs net bank amount
+ settlements  linked_mid_date  amt_eq_net  amt_eq_gross
+       30315            30315       10051             0
+
+## Cheque deposits: deposit_id in text
+ deposits  linked  amt_eq
+    15231   15231   15231
+
+## Payment runs by type: transfer (e2e) found in bank fields; run_id found (aggregated/confirming)
+  run_type  transfers  e2e_full  run_id_found
+ transfers     402949    218689        402949
+confirming      25607         0         25607
+aggregated     123947         0        123947
+
+## AP golden pairs whose item doc number appears in payment_runs (same entity) — by segment
+                  segment  pairs  in_runs
+         ap_payment_multi 598314   598314
+                    ap_fx 333754   333754
+        ap_payment_single 139376   139376
+    ap_credit_note_netted  90243    90243
+               ap_partial  83124    83124
+       ap_paid_by_holding  82599    82599
+            ap_confirming  61199    61169
+          ap_direct_debit  41335    41072
+              ap_factored  26777    26777
+       ap_supplier_refund  17795     5794
+ap_payment_run_aggregated   4501     4501
+     ap_returned_transfer   3134     3134
+     ap_duplicate_payment    491      491
+
+## AP lines: does bank text carry an id like PR...-NNNN?
+                  segment statement_format  lines  pct_PRid  pct_CFid
+            ap_confirming              n43   6387       0.0     100.0
+    ap_credit_note_netted          camt053   7681     100.0       0.0
+    ap_credit_note_netted            mt940   7027     100.0       0.0
+    ap_credit_note_netted              n43   3767     100.0       0.0
+          ap_direct_debit          camt053  19483       0.0       0.0
+          ap_direct_debit            mt940  11705       0.0       0.0
+          ap_direct_debit              n43  10147       0.0       0.0
+     ap_duplicate_payment          camt053    213     100.0       0.0
+     ap_duplicate_payment            mt940    172     100.0       0.0
+     ap_duplicate_payment              n43    106     100.0       0.0
+      ap_duplicate_refund          camt053    210       0.0       0.0
+      ap_duplicate_refund            mt940    169       0.0       0.0
+      ap_duplicate_refund              n43    104       0.0       0.0
+              ap_factored          camt053   4304     100.0       0.0
+              ap_factored            mt940   4411     100.0       0.0
+              ap_factored              n43   2219     100.0       0.0
+                    ap_fx          camt053   2995     100.0       0.0
+                    ap_fx            mt940   3835     100.0       0.0
+                    ap_fx              n43   1774     100.0       0.0
+       ap_paid_by_holding              n43  33363     100.0       0.0
+               ap_partial          camt053   7584     100.0       0.0
+               ap_partial            mt940   6762     100.0       0.0
+               ap_partial              n43   3785     100.0       0.0
+         ap_payment_multi          camt053  81363     100.0       0.0
+         ap_payment_multi            mt940  72134     100.0       0.0
+         ap_payment_multi              n43  20909     100.0       0.0
+ap_payment_run_aggregated          camt053      2     100.0       0.0
+ap_payment_run_aggregated              n43      3     100.0       0.0
+        ap_payment_single          camt053  64981     100.0       0.0
+        ap_payment_single            mt940  58235     100.0       0.0
+        ap_payment_single              n43  16160     100.0       0.0
+     ap_returned_transfer          camt053    476     100.0       0.0
+     ap_returned_transfer            mt940    439     100.0       0.0
+     ap_returned_transfer              n43    277      74.2       0.0
+       ap_supplier_refund          camt053   8442       0.0       0.0
+       ap_supplier_refund            mt940   4598       0.0       0.0
+       ap_supplier_refund              n43   4755       0.0       0.0

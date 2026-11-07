@@ -1,0 +1,26 @@
+                            lines  doc_exact  doc_partial  po_in_text  name10_in_text  iban_eq_master  sum_eq_amt  single_total_eq_amt  no_digits
+segment                                                                                                                                          
+ar_ref_noise               124641        2.2         22.5         4.1            95.5            99.8       100.0                 73.5        3.7
+ar_1to1                     56499       98.7         98.7         0.0            96.1            99.9       100.0                100.0        0.0
+ar_same_amount_fifo         18530        0.0          0.0         0.0            96.8            99.8        99.6                 99.6        5.3
+ar_1toN_text                18250       96.3         97.5         0.0            96.6           100.0        99.9                  0.0        0.1
+ar_short_discount           17596       33.6         47.2         3.8            98.6            99.2         0.0                  0.0        0.7
+ar_instalment               13335       69.9         76.0         1.5            95.5            99.8        98.7                  0.0        1.8
+ar_same_amount_month        12790        0.0          0.0         0.0            95.8            99.8        99.5                 99.5        3.7
+ar_partial                  11096       50.0         60.0         1.2            95.8            99.6       100.0                  0.0        2.2
+unidentified                 9570        NaN          NaN         NaN             NaN             NaN         NaN                  NaN        6.7
+ar_1toN_credit_note          9461       38.3         53.5        24.9            95.5            99.6         0.0                  0.0        1.9
+ar_n_to_m                    5492       38.7         51.8         6.3            95.7            99.6       100.0                  0.0        2.1
+unidentified_lookalike       4115        NaN          NaN         NaN             NaN             NaN         NaN                  NaN        6.4
+ar_short_withholding         4075       34.7         47.0         2.1            98.7             NaN         0.0                  0.0        1.0
+ar_1toN_remittance           3577        0.0          1.1         0.0            96.1           100.0        39.7                  0.0        0.0
+ar_dispute_settlement        3297       96.5         96.5         0.0            95.9            99.7        93.0                  0.0        0.6
+ar_short_dispute             3060        5.6         16.8         0.0            94.2            99.1        26.3                  0.0        0.1
+ar_retention                 2692       34.9         48.8         4.3            95.2           100.0        98.0                  0.0        3.3
+ar_discount_late             2330       38.5         53.0         3.7            97.3            98.2        96.8                  0.0        0.7
+ar_fx                        2238       30.6         41.4         7.4            97.3           100.0         0.0                  0.0        1.1
+ar_third_party_confirming    2069       40.8         61.6         0.0            75.1             NaN       100.0                100.0       15.9
+ar_duplicate_payment         1774       35.6         50.0         1.5            94.3           100.0       100.0                100.0        2.0
+ar_overpayment               1179       35.6         49.1         1.4            95.4            99.7         0.0                  0.0        2.3
+ar_new_iban                   698        0.0          0.0         0.0            85.8           100.0       100.0                 78.9       19.9
+ar_third_party_parent         506       56.1         58.3         0.0            36.6            45.5        85.0                 16.4        0.0

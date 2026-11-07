@@ -1,0 +1,160 @@
+
+============================== TRAIN ==============================
+
+### train/ap_invoices.csv.gz  rows=1,530,203  cols=14
+    ['item_id', 'entity', 'supplier_id', 'supplier_name', 'supplier_invoice_number', 'issue_date', 'due_date', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'payment_terms', 'our_po', 'payment_method']
+         item_id entity supplier_id                   supplier_name supplier_invoice_number issue_date   due_date currency net_amount tax_amount total_amount payment_terms     our_po payment_method
+API-2021-0008605   US01 SUS01003341                 Cook Resins LLC              INV0001573 2021-03-01 2021-03-31      USD     827.26       0.00       827.26         N30US 4577513771       transfer
+API-2021-0019194   US01 SUS01000534 Limpiezas Redondo GmbH & Co. KG               2021-0020 2021-03-01 2021-03-31      EUR   24253.72       0.00     24253.72           T30 4584132176       transfer
+API-2021-0020601   US01 SUS01004195          Software Ashbridge Ltd                 A002826 2021-03-01 2021-04-30      USD    3654.65       0.00      3654.65           T60 5527971254       transfer
+
+### train/ar_invoices.csv.gz  rows=3,963,735  cols=14
+    ['item_id', 'entity', 'document_number', 'issue_date', 'due_date', 'customer_id', 'customer_name', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'payment_terms', 'customer_po', 'payment_method']
+         item_id entity document_number issue_date   due_date customer_id                      customer_name currency net_amount tax_amount total_amount payment_terms customer_po payment_method
+ARI-2021-0001120   MA01     FA210100025 2021-03-01 2021-03-31 CMA01000300             Jardins Dar Lmina SARL      MAD    6584.40    1316.88      7901.28         D2N30        None       transfer
+ARI-2021-0001218   ES01    FV21-0200110 2021-03-01 2021-03-31 CES01008150            Spa Larrañaga 2000 S.L.      EUR     540.00     113.40       653.40          DD30        None             dd
+ARI-2021-0001275   DE01     RE210200135 2021-03-01 2021-03-16 CDE01001545 Weißenau Pooltechnik GmbH & Co. KG      EUR     700.00     133.00       833.00          DD15        None             dd
+
+### train/bank_transactions.csv.gz  rows=1,489,931  cols=21
+    ['bank_txn_id', 'account_id', 'entity', 'bank', 'statement_format', 'statement_file', 'booking_date', 'value_date', 'amount', 'currency', 'bank_code', 'bank_subcode', 'ref1', 'ref2', 'text', 'counterparty_name', 'counterparty_account', 'end_to_end_id', 'remittance_info', 'orig_amount', 'orig_currency']
+    bank_txn_id    account_id entity bank statement_format                                               statement_file booking_date value_date    amount currency      bank_code bank_subcode              ref1 ref2                                                  text                 counterparty_name counterparty_account   end_to_end_id          remittance_info orig_amount orig_currency
+BT-2021-0000001 AU01-WATT-AUD   AU01 WATT          camt053 train/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202107.xml   2021-07-01 2021-07-01    973.28      AUD PMNT/RCDT/ESCT         None WATT2107015658237 None           DIRECT CREDIT WALKER & ANDERSON LE SUPPLIES Walker & Anderson Leisure Pty Ltd                 None PAY-2021-710706                 SUPPLIES        None          None
+BT-2021-0000002 AU01-WATT-AUD   AU01 WATT          camt053 train/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202107.xml   2021-07-01 2021-07-01    207.58      AUD PMNT/RCDT/ESCT         None WATT2107010961944 None DIRECT CREDIT RESORT ROBERTS GROUP INVOICE INV21-0303      Resort Roberts Group Pty Ltd                 None  20210701400860    INVOICE INV21-0303683        None          None
+BT-2021-0000003 AU01-WATT-AUD   AU01 WATT          camt053 train/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202107.xml   2021-07-01 2021-07-01 143072.41      AUD PMNT/RCDT/ESCT         None WATT2107013677156 None DIRECT CREDIT PORT ELLERY POOL SUP PMT ADVICE REM/202   Port Ellery Pool Supply Pty Ltd                 None     NOTPROVIDED PMT ADVICE REM/2021/0798        None          None
+
+### train/credit_notes.csv.gz  rows=150,215  cols=13
+    ['item_id', 'side', 'entity', 'document_number', 'issue_date', 'party_id', 'party_name', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'related_document', 'reason']
+         item_id side entity document_number issue_date    party_id                       party_name currency net_amount tax_amount total_amount related_document                     reason
+ARC-2021-6084291   AR   FR01     AV210100001 2021-03-04 CFR01001399 Márquez Caballero Bien-Être EURL      EUR     147.00      29.40       176.40      FA210100119 Devolución / rectificación
+ARC-2021-0705946   AR   AU01   CRN21-0200001 2021-03-05 CAU01000399         Spa Service Ward Pty Ltd      AUD     587.28      58.73       646.01    INV21-0200175 Devolución / rectificación
+ARC-2021-2419813   AR   US01     CM052100001 2021-03-05 CUS01007412            Pool Supply Oasis LLC      USD     203.82       0.00       203.82       1052100107 Devolución / rectificación
+
+### train/golden_allocations.csv.gz  rows=5,403,411  cols=7
+    ['bank_txn_id', 'item_id', 'amount', 'category', 'exception', 'segment', 'difficulty']
+    bank_txn_id          item_id  amount category exception             segment difficulty
+BT-2021-0000001 ARI-2021-3624375  973.28     None      None ar_same_amount_fifo          3
+BT-2021-0000002 ARI-2021-8859668  207.58     None      None             ar_1to1          1
+BT-2021-0000003 ARI-2021-0426924 1856.75     None      None  ar_1toN_remittance          3
+
+--- train/direct_debit_batches: 1440 files {'.csv': 1440}
+
+--- train/card_settlements: 240 files {'.csv': 240}
+
+--- train/cheque_deposits: 816 files {'.csv': 816}
+
+--- train/payment_runs: 1056 files {'.csv': 1056}
+
+--- train/remittance_advices: 13440 files {'.csv': 4936, '.txt': 3472, '.pdf': 4392, '.xlsx': 640}
+
+--- train/pdfs: 33205 files {'.csv': 1, '.pdf': 33204}
+
+--- train/bank_statements: 574 files {'.sta': 216, '.xml': 166, '.n43': 192}
+
+============================== LIVE ==============================
+
+### live/ap_invoices.csv.gz  rows=199,414  cols=14
+    ['item_id', 'entity', 'supplier_id', 'supplier_name', 'supplier_invoice_number', 'issue_date', 'due_date', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'payment_terms', 'our_po', 'payment_method']
+         item_id entity supplier_id           supplier_name supplier_invoice_number issue_date   due_date currency net_amount tax_amount total_amount payment_terms     our_po payment_method
+API-2025-0003996   US01 SUS01002183    Security Europa Inc.              2025/00306 2025-07-01 2025-08-30      USD     993.13       0.00       993.13           T60 4525796005       transfer
+API-2025-0007917   IT01 SIT01000181 Energía Valdorso S.p.A.              2025/00162 2025-07-01 2025-08-30      EUR     162.36      35.72       198.08           T60 4556972273       transfer
+API-2025-0009050   AU01 SAU01000264 Components Ward Pty Ltd              2025/00356 2025-07-01 2025-08-30      AUD    2408.61     240.86      2649.47           T60        NaN       transfer
+
+### live/ar_invoices.csv.gz  rows=487,243  cols=14
+    ['item_id', 'entity', 'document_number', 'issue_date', 'due_date', 'customer_id', 'customer_name', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'payment_terms', 'customer_po', 'payment_method']
+         item_id entity document_number issue_date   due_date customer_id          customer_name currency net_amount tax_amount total_amount payment_terms customer_po payment_method
+ARI-2025-0000618   ES01    FV25-0513218 2025-07-01 2025-07-16 CES01006394   RDS Suministros S.L.      EUR     530.00     111.30       641.30          DD15        None             dd
+ARI-2025-0000737   PT01   INV25-0118215 2025-07-01 2025-07-16 CPT01001491 Beatriz Molina Vázquez      EUR     133.00      30.59       163.59          DD15        None             dd
+ARI-2025-0002041   AU01   INV25-0212864 2025-07-01 2025-07-31 CAU01002944  Long Backyard Pty Ltd      AUD     390.26      39.03       429.29         N30US        None             dd
+
+### live/bank_transactions.csv.gz  rows=203,083  cols=21
+    ['bank_txn_id', 'account_id', 'entity', 'bank', 'statement_format', 'statement_file', 'booking_date', 'value_date', 'amount', 'currency', 'bank_code', 'bank_subcode', 'ref1', 'ref2', 'text', 'counterparty_name', 'counterparty_account', 'end_to_end_id', 'remittance_info', 'orig_amount', 'orig_currency']
+    bank_txn_id    account_id entity bank statement_format                                              statement_file booking_date value_date  amount currency      bank_code bank_subcode              ref1 ref2                                                  text         counterparty_name counterparty_account end_to_end_id    remittance_info orig_amount orig_currency
+BT-2025-0199988 AU01-WATT-AUD   AU01 WATT          camt053 live/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202507.xml   2025-07-01 2025-07-01 1487.60      AUD PMNT/CCRD/POSD         None WATT2507017633391 None        CARD SETTLEMENT MID 762279862 2025-06-30 5 TRX                   PAYNEXO                 None           NaN                NaN        None          None
+BT-2025-0199989 AU01-WATT-AUD   AU01 WATT          camt053 live/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202507.xml   2025-07-01 2025-07-01 1288.22      AUD PMNT/RCDT/ESCT         None WATT2507018906049 None DIRECT CREDIT POOL & SPA BAILEY PT INV# INV25-0210437 Pool & Spa Bailey Pty Ltd                 None   NOTPROVIDED INV# INV25-0210437        None          None
+BT-2025-0199990 AU01-WATT-AUD   AU01 WATT          camt053 live/bank_statements/AU01-WATT-AUD/AU01-WATT-AUD_202507.xml   2025-07-01 2025-07-01 7509.59      AUD PMNT/CCRD/POSD         None WATT2507019002650 None       CARD SETTLEMENT MID 040654992 2025-06-27 14 TRX           TARJETAS UNIDAS                 None           NaN                NaN        None          None
+
+### live/credit_notes.csv.gz  rows=19,500  cols=13
+    ['item_id', 'side', 'entity', 'document_number', 'issue_date', 'party_id', 'party_name', 'currency', 'net_amount', 'tax_amount', 'total_amount', 'related_document', 'reason']
+         item_id side entity document_number issue_date    party_id                        party_name currency net_amount tax_amount total_amount related_document             reason
+APC-2025-0487390   AP   CN01       R25003265 2025-07-01 SCN01000404            AS6 Software Co., Ltd.      CNY     481.48      62.59       544.07         25003265 Abono de proveedor
+APC-2025-0616651   AP   US01         AB-1518 2025-07-01 SUS01004108 Seguridad Oberhaven GmbH & Co. KG      USD     106.78       0.00       106.78             1518 Abono de proveedor
+APC-2025-0659369   AP   CN01     RFV-25-0118 2025-07-01 SCN01000666            Filters Ross Co., Ltd.      CNY     688.89      89.56       778.45       FV-25-0118 Abono de proveedor
+
+### live/open_items_at_start.csv.gz  rows=325,419  cols=10
+    ['item_id', 'item_type', 'entity', 'party_id', 'document_number', 'issue_date', 'due_date', 'currency', 'total_amount', 'open_amount']
+         item_id item_type entity    party_id document_number issue_date   due_date currency total_amount open_amount
+APC-2021-0032778       APC   CN01 SCN01000037       R21001071 2021-04-27 2021-05-27      CNY      5946.46     5946.46
+APC-2021-0077979       APC   US01 SUS01000040   AB-INV0001098 2021-04-22 2021-05-22      USD        28.88       28.88
+APC-2021-0120009       APC   US01 SUS01000040   AB-INV0001122 2021-09-06 2021-10-06      USD       228.36      228.36
+
+--- live/direct_debit_batches: 180 files {'.csv': 180}
+
+--- live/card_settlements: 30 files {'.csv': 30}
+
+--- live/cheque_deposits: 102 files {'.csv': 102}
+
+--- live/payment_runs: 132 files {'.csv': 132}
+
+--- live/remittance_advices: 6890 files {'.csv': 2382, '.xlsx': 497, '.txt': 1815, '.pdf': 2196}
+
+--- live/pdfs: 16689 files {'.csv': 1, '.pdf': 16688}
+
+--- live/bank_statements: 287 files {'.sta': 109, '.xml': 94, '.n43': 84}
+
+============================== MASTERS ==============================
+
+### masters/bank_accounts.csv  rows=47  cols=12
+    ['account_id', 'entity', 'bank', 'bank_name', 'bic', 'currency', 'iban', 'account_number', 'purpose', 'statement_format', 'statement_format_from_2025_10_01', 'opened']
+   account_id entity bank            bank_name         bic currency                     iban account_number                                                purpose statement_format statement_format_from_2025_10_01 opened
+ES00-PENA-EUR   ES00 PENA       Banco Peñalara PENAESM1XXX      EUR ES9094011616614799232123           None Cabecera cash pooling / Pagos / Financiación / Divisas              n43                              NaN   None
+ES00-PENA-USD   ES00 PENA       Banco Peñalara PENAESM1XXX      USD ES5694019811368165563939           None                                                Divisas              n43                              NaN   None
+ES00-MONC-EUR   ES00 MONC    Banco del Moncayo MONCESMMXXX      EUR ES3194024636107419071015           None                                   Financiación / Pagos              n43                          camt053   None
+ES00-RHEI-EUR   ES00 RHEI Rheinfeld Kreditbank RHEIDEFFXXX      EUR   DE07940493613266261150           None                     Cabecera cash pool EUR (zona euro)          camt053                              NaN   None
+
+### masters/categories.csv  rows=21  cols=3
+    ['category', 'description', 'gl_account']
+        category                        description gl_account
+       BANK_FEES      Comisiones y gastos bancarios     626000
+ INTEREST_INCOME                  Intereses a favor     769000
+INTEREST_EXPENSE Intereses de deudas / descubiertos     662000
+         PAYROLL Nóminas (remesa de transferencias)     465000
+
+### masters/customers.csv  rows=55,672  cols=15
+    ['customer_id', 'entity', 'name', 'trade_name', 'customer_type', 'country', 'tax_id', 'iban', 'sepa_mandate_id', 'payment_terms', 'invoice_currency', 'group_id', 'parent_customer_id', 'created', 'blocked_since']
+customer_id entity                               name           trade_name customer_type country    tax_id                     iban sepa_mandate_id payment_terms invoice_currency  group_id parent_customer_id    created blocked_since
+CES00000001   ES00 Prieto y Llorente Suministros S.L.                  NaN   KEY_ACCOUNT      ES B00021881 ES7794393172576649681343            None           T60              EUR GES000000        CES00000003 2021-03-01           NaN
+CES00000002   ES00      Garrido Mantenimientos S.L.U.                  NaN   KEY_ACCOUNT      ES B00591628 ES6894172634367767995765            None           T90              EUR GES000000        CES00000003 2021-03-01           NaN
+CES00000003   ES00 Hidrotecnia Arenal del Sur S.Coop. Ferretería Valdemora   DISTRIBUTOR      ES A00474296 ES0294952797347204887037            None           T30              EUR GES000000                NaN 2021-03-01    2022-05-26
+CES00000004   ES00      Bernal y Romero Piscinas S.L.                  NaN   DISTRIBUTOR      ES B00384008 ES1194487567563373276311            None           T30              EUR GES000000        CES00000003 2021-03-01           NaN
+
+### masters/entities.csv  rows=17  cols=6
+    ['entity', 'legal_name', 'country', 'functional_currency', 'role', 'in_group_since']
+entity                      legal_name country functional_currency                                       role in_group_since
+  ES00      Valtermia Industrial, S.A.      ES                 EUR holding / in-house bank / cash-pool header     2010-01-01
+  ES01       Valtermia Ibérica, S.A.U.      ES                 EUR                commercial Spain (branches)     2010-01-01
+  ES02 Valtermia Manufacturing, S.L.U.      ES                 EUR                              manufacturing     2010-01-01
+  PT01        Valtermia Portugal, Lda.      PT                 EUR                                 commercial     2010-01-01
+
+### masters/fx_rates.csv  rows=13,706  cols=4
+    ['date', 'currency', 'units_per_eur', 'source']
+      date currency units_per_eur source
+2021-02-22      AUD        1.5392    ECB
+2021-02-22      BRL        6.6843    ECB
+2021-02-22      CAD        1.5328    ECB
+2021-02-22      CHF        1.0888    ECB
+
+### masters/payment_terms.csv  rows=13  cols=5
+    ['code', 'days', 'early_payment_discount_pct', 'discount_days', 'description']
+ code days early_payment_discount_pct discount_days           description
+  T30   30                       None          None 30 días fecha factura
+  T60   60                       None          None 60 días fecha factura
+  T90   90                       None          None 90 días fecha factura
+T30FM   30                       None          None    30 días fin de mes
+
+### masters/suppliers.csv  rows=12,831  cols=13
+    ['supplier_id', 'entity', 'name', 'country', 'tax_id', 'supplier_type', 'iban', 'account_number', 'payment_method', 'payment_terms', 'invoice_currency', 'created', 'blocked_since']
+supplier_id entity                         name country    tax_id supplier_type                     iban account_number payment_method payment_terms invoice_currency    created blocked_since
+SES00000001   ES00      Química Urrutia S.Coop.      ES B00468199         GOODS ES5794717177169083796097           None       transfer           T60              EUR 2021-03-01           NaN
+SES00000002   ES00      Energía Herrera S.Coop.      ES A00710939         GOODS ES6494744983989509052855           None       transfer           T60              EUR 2021-03-01           NaN
+SES00000003   ES00 Válvulas Castrolargo S.Coop.      ES B00990176     LOGISTICS ES1694798712921376359317           None       transfer           T60              EUR 2021-03-01           NaN
+SES00000004   ES00        Llorente Filtros S.L.      ES B00885111      SERVICES ES8494161748379382548627           None       transfer           T30              EUR 2021-03-01    2023-12-19
