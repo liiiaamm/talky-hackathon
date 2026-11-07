@@ -4,11 +4,12 @@ A customer's advice (csv/xlsx/txt/pdf, parsed by remittance_parse) lists the doc
 reasons. We link each advice to the receipt (same entity, same amount, booking within a few days of the advice), map its
 documents to our items, and set amounts/exceptions from the advice (POLICIES §2-§3):
 
-    reason DISCOUNT       -> SHORT_DISCOUNT (within terms, full open amount) or PARTIAL (late, amount paid)
-    reason withholding    -> SHORT_WITHHOLDING (full open amount)
-    any other reason      -> SHORT_DISPUTE (amount actually paid)
-    credit note rows      -> positive amount, no exception
-    receipt in another ccy-> FX_DIFFERENCE on fully-cleared invoice rows
+    recognised reason, or a shortfall that satisfies a policy formula -> SHORT_DISCOUNT / PARTIAL (late) / SHORT_WITHHOLDING
+    unrecognised stated reason                                        -> SHORT_DISPUTE (amount actually paid)
+    unexplained shortfall                                             -> PARTIAL
+    credit note rows                                                  -> positive amount, no exception
+    receipt in another currency                                       -> FX_DIFFERENCE on fully-cleared invoice rows
+See the CONFIG block for every constant and the policy clause it comes from.
 """
 from __future__ import annotations
 
@@ -20,15 +21,40 @@ from .data import Ctx, norm_expr
 from .deterministic import _acc_entity, empty_rows
 from .remittance_parse import load_lines
 
-LAG_MIN, LAG_MAX = -5, 20          # advice received_date - bank booking_date, in days
-AMT_TOL = 0.011
-# withholding-tax reasons, matched as whole words / word prefixes ("RAS" must not hit "PENAL. RETRASO")
-WHT_WORDS = {"RET", "WHT", "ISR", "IRRF", "TDS", "RAS"}
-WHT_PREFIXES = ("WITHHOLD", "RETENC", "RETENÇ", "RETENU")
-DISCOUNT_WORDS = ("DISCOUNT", "DTO", "DESCUENTO", "ESCOMPTE", "SKONTO", "SCONTO")
-# POLICIES §3: withholding at source by some customers in MX/BR/MA, rates on the invoice total
+# =====================================================================================================================
+# CONFIG — every constant the resolver uses, with the policy clause it comes from. Nothing below is tuned on labels.
+# To run this on another company's data, change this block only.
+# =====================================================================================================================
+# Linking an advice to its receipt.  POLICIES §5.4: "the advice can arrive a few days after the cash".
+LAG_MIN, LAG_MAX = -5, 20          # advice received_date − bank booking_date, days (widened around the policy's "few days")
+AMT_TOL = 0.011                    # cent rounding (scorer tolerance is max(0.01, 0.5 %) — POLICIES §2)
+MIN_REF_DIGITS = 5                 # a quoted number must keep ≥ 5 digits to be matched by suffix (POLICIES §5.5: numbers
+                                   # arrive without prefix / leading zeros; shorter suffixes are not unique)
+
+# Early-payment discount.  POLICIES §3 SHORT_DISCOUNT: terms carry the %, booking ≤ invoice date + discount days + grace.
+DISCOUNT_GRACE_DAYS = 3
+
+# Withholding at source.  POLICIES §3 SHORT_WITHHOLDING: "some customers in Mexico, Brazil and Morocco; 1.25 %, 1.5 % or 10 %".
 WHT_RATES = (0.0125, 0.015, 0.10)
-WHT_COUNTRIES = {"MX", "BR", "MA"}
+WHT_COUNTRIES = {"MX", "BR", "MA"}   # empty set = no country gate (then a rate match alone decides)
+
+# Vocabulary.  Used ONLY to read a *stated* reason. A reason we do not recognise falls through to the arithmetic below,
+# so missing words cost nothing but precision on coincidences; add words freely. Whole words / word prefixes, upper-case.
+DISCOUNT_PREFIXES = ("DISCOUNT", "DTO", "DESCUENTO", "DESCONTO", "ESCOMPTE", "SKONTO", "SCONTO", "RABATT", "EARLY")
+WHT_WORDS = {"WHT", "ISR", "IRRF", "TDS", "RAS", "IRPF"}
+WHT_PREFIXES = ("WITHHOLD", "RETENC", "RETENÇ", "RETENU", "RITENUT", "QUELLENST")
+# ("RET" — the Brazilian advices' abbreviation for retenção — is deliberately NOT listed: the arithmetic fallback must
+#  recover it on its own. That is the regression test for the vocabulary-free path.)
+
+# Decision order for a shortfall on an invoice (POLICIES §3):
+#   1. stated reason we recognise         -> that class (data check: 100 % of such rows also satisfy the formula)
+#   2. shortfall satisfies a policy formula -> that class (discount % of total; withholding rate × total, customer in a
+#                                             withholding country). Used for unstated or unrecognised reasons.
+#   3. stated reason we do not recognise  -> SHORT_DISPUTE ("deducted an amount with a stated reason")
+#   4. nothing explains it                 -> PARTIAL
+# Measured cost of step 2 over-riding an unrecognised reason: 197 of 17,431 stated disputes in TRAIN (1.1 %) equal a
+# withholding rate for a withholding-country customer; 0 equal a discount formula.
+# =====================================================================================================================
 
 
 def _words(reason: str) -> list[str]:
@@ -37,12 +63,28 @@ def _words(reason: str) -> list[str]:
 
 
 def is_wht(reason: str) -> bool:
-    ws = _words(reason)
-    return any(w in WHT_WORDS or w.startswith(WHT_PREFIXES) for w in ws)
+    return any(w in WHT_WORDS or w.startswith(WHT_PREFIXES) for w in _words(reason))
 
 
 def is_discount(reason: str) -> bool:
-    return any(w.startswith(DISCOUNT_WORDS) for w in _words(reason))
+    return any(w.startswith(DISCOUNT_PREFIXES) for w in _words(reason))
+
+
+def fits(short: float, total: float, rate: float) -> bool:
+    return abs(short - round(total * rate, 2)) <= AMT_TOL
+
+
+def explain_shortfall(short: float, total: float, reason: str, discount_pct: float | None, in_wht_country: bool) -> str:
+    """Return 'DISCOUNT' | 'WHT' | 'DISPUTE' | 'PARTIAL' for an invoice paid `short` less than its open amount."""
+    if reason and is_discount(reason):
+        return "DISCOUNT"
+    if reason and is_wht(reason):
+        return "WHT"
+    if discount_pct and fits(short, total, discount_pct):
+        return "DISCOUNT"
+    if (in_wht_country or not WHT_COUNTRIES) and any(fits(short, total, r) for r in WHT_RATES):
+        return "WHT"
+    return "DISPUTE" if reason else "PARTIAL"
 
 
 def _advices(ctx: Ctx) -> tuple[pl.DataFrame, pl.DataFrame] | None:
@@ -106,7 +148,7 @@ def _map_docs(ctx: Ctx, docs: pl.DataFrame) -> pl.DataFrame:
         pitems = (items.join(rest.select("party_id").unique(), on="party_id", how="semi")
                   .with_columns(pl.col("docnorm").str.slice(-5).alias("s5"), (pl.col("total") * 100).round(0).cast(pl.Int64).alias("k")))
         suf = (rest.with_columns(pl.col("dn").str.replace(r"^[A-Z]+", "").str.strip_chars_start("0").alias("dig"))
-               .filter(pl.col("dig").str.len_chars() >= 5)
+               .filter(pl.col("dig").str.len_chars() >= MIN_REF_DIGITS)
                .with_columns(pl.col("dig").str.slice(-5).alias("s5"))
                .join(pitems, on=["party_id", "s5"], how="inner", suffix="_i")
                .filter(pl.col("docnorm").str.ends_with(pl.col("dig")) & (pl.col("entity") == pl.col("entity_i")))
@@ -129,12 +171,12 @@ def _map_entity_level(items: pl.DataFrame, rest: pl.DataFrame) -> pl.DataFrame:
     rest = rest.with_columns(pl.col("dn").str.replace(r"^[A-Z]+", "").str.strip_chars_start("0").alias("dig"),
                              norm_expr("po").alias("pon"))
     amt_ok = (pl.col("total") - pl.col("gross").abs()).abs() <= AMT_TOL
-    by_po = (rest.filter(pl.col("pon").str.len_chars() >= 5)
-             .join(ari.with_columns(norm_expr("ipo").alias("pon")).filter(pl.col("pon").str.len_chars() >= 5),
+    by_po = (rest.filter(pl.col("pon").str.len_chars() >= MIN_REF_DIGITS)
+             .join(ari.with_columns(norm_expr("ipo").alias("pon")).filter(pl.col("pon").str.len_chars() >= MIN_REF_DIGITS),
                    on=["entity", "pon"], how="inner", suffix="_i")
              .filter(amt_ok | pl.col("docnorm").str.ends_with(pl.col("dig")))
              .unique("_r", keep="first"))
-    left = rest.join(by_po.select("_r"), on="_r", how="anti").filter(pl.col("dig").str.len_chars() >= 5)
+    left = rest.join(by_po.select("_r"), on="_r", how="anti").filter(pl.col("dig").str.len_chars() >= MIN_REF_DIGITS)
     by_suffix = (left.with_columns(pl.col("dig").str.slice(-5).alias("s5"))
                  .join(ari.with_columns(pl.col("docnorm").str.slice(-5).alias("s5")), on=["entity", "s5"], how="inner", suffix="_i")
                  .filter(pl.col("docnorm").str.ends_with(pl.col("dig")) & amt_ok)
@@ -163,36 +205,28 @@ def remittances(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     terms = _terms(ctx)
     country = dict(ctx.customers.select("customer_id", "country").iter_rows())
 
-    def discount(r, open_amt, paid):
-        t = terms.get(r["payment_terms"])
-        ok = bool(t) and date.fromisoformat(r["booking_date"]) <= date.fromisoformat(r["issue_date"]) + timedelta(days=t[1] + 3)
-        return ("SHORT_DISCOUNT", open_amt) if ok else ("PARTIAL", abs(paid))
-
     rows = []
     for r in m.iter_rows(named=True):
         open_amt = r["open_amount"] if r["open_amount"] is not None else r["total"]
-        paid = r["paid"] if r["paid"] is not None else r["gross"]
+        paid = abs(r["paid"]) if r["paid"] is not None else abs(r["gross"])
         reason = (r["reason"] or "").upper()
         exc, amount = "", open_amt
-        if r["item_type"] == "ARC":
+        if r["item_type"] == "ARC":                                   # credit note netted: full amount, positive, no exception
             amount = abs(r["gross"]) if r["gross"] is not None else open_amt
-        elif reason:
-            if is_discount(reason):
-                exc, amount = discount(r, open_amt, paid)
-            elif is_wht(reason):                       # e.g. BR01 advices: "RET" = 10 % retenção na fonte
-                exc = "SHORT_WITHHOLDING"
-            else:
-                exc, amount = "SHORT_DISPUTE", abs(paid)
-        elif paid is not None and abs(paid) < open_amt - max(AMT_TOL, 0.005 * open_amt):
-            # short without a stated reason: explain it with the policy formulas before calling it PARTIAL
-            short, total = open_amt - abs(paid), r["total"]
+        elif paid is not None and paid < open_amt - max(AMT_TOL, 0.005 * open_amt):
+            short, total = open_amt - paid, r["total"]
             t = terms.get(r["payment_terms"])
-            if t and abs(short - round(total * t[0], 2)) <= AMT_TOL:
-                exc, amount = discount(r, open_amt, paid)
-            elif country.get(r["party_id"]) in WHT_COUNTRIES and any(abs(short - round(total * x, 2)) <= AMT_TOL for x in WHT_RATES):
-                exc = "SHORT_WITHHOLDING"
+            kind = explain_shortfall(short, total, reason, t[0] if t else None, country.get(r["party_id"]) in WHT_COUNTRIES)
+            if kind == "DISCOUNT":
+                in_terms = bool(t) and date.fromisoformat(r["booking_date"]) <= (
+                    date.fromisoformat(r["issue_date"]) + timedelta(days=t[1] + DISCOUNT_GRACE_DAYS))
+                exc, amount = ("SHORT_DISCOUNT", open_amt) if in_terms else ("PARTIAL", paid)   # late discount: not accepted
+            elif kind == "WHT":
+                exc = "SHORT_WITHHOLDING"                             # fully cleared, tax certificate covers it
+            elif kind == "DISPUTE":
+                exc, amount = "SHORT_DISPUTE", paid                   # disputed part stays open
             else:
-                exc, amount = "PARTIAL", abs(paid)
+                exc, amount = "PARTIAL", paid
         if r["item_type"] == "ARI" and r["bank_ccy"] != r["item_ccy"] and exc in ("", "SHORT_DISCOUNT", "SHORT_WITHHOLDING"):
             exc = "FX_DIFFERENCE"
         rows.append((r["bank_txn_id"], r["item_id"], round(float(amount), 2), None, exc, "remittance"))
