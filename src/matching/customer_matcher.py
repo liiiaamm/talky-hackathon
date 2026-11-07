@@ -50,6 +50,16 @@ class ItemCandidate:
 _CHARGE_OPT = re.compile(r"\b(?:GASTOS|CHARGES?|CHGS?)\s*:?\s*(?:SHA|BEN)\b|\b(?:SHA|BEN)\s+CHARGES\b")
 
 
+def _round_units(cents: int) -> bool:
+    """1, 2 or 5 x 10^n whole currency units (1, 2, 5, 10, 20, 50, 100 ...)."""
+    if cents <= 0 or cents % 100:
+        return False
+    u = cents // 100
+    while u % 10 == 0:
+        u //= 10
+    return u in (1, 2, 5)
+
+
 @dataclass
 class MatchProposal:
     bank_txn_id: str
@@ -132,7 +142,8 @@ class CustomerMatcher:
                     "top_parties": 8, "use_discount": True, "use_withholding": True, "grace_days": 3,
                     "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False,
                     "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0,
-                    "use_duplicates": True, "duplicate_days": 31}
+                    "use_duplicates": True, "duplicate_days": 31,
+                    "use_overpayment": True, "over_max_pct": 10.0}
         if cfg:
             self.cfg.update(cfg)
 
@@ -231,6 +242,23 @@ class CustomerMatcher:
                 continue
             short = o - target
             if 0 < short <= min(cap, o * cfg["charges_cap_pct"] / 100.0):
+                hits.add(i)
+        return next(iter(hits)) if len(hits) == 1 else None
+
+    # ------------------------------------------------------------------ overpayments (POLICIES §3)
+    def _overpayment(self, target, cur, side, entities, parties, strong_refs, ledger):
+        """Single open invoice of the payer (or the single strongly referenced one) paid with a little more than its open
+        amount: 0 < cash - open <= over_max_pct % of open, and the excess is a whole number of currency units or exactly
+        that percentage (a round top-up: 1, 2 or 5 times a power of ten in currency units). Unique, otherwise abstain. Amount = open amount (the excess stays on account)."""
+        s, cfg = self.s, self.cfg
+        pool = strong_refs or [i for p in parties[: cfg["top_parties"]] for i in s.by_party.get(p, ())]
+        hits = set()
+        for i in pool:
+            o = ledger.open(i)
+            if s.side[i] != side or s.currency[i] != cur or s.entity[i] not in entities or s.sign[i] < 0 or o <= 0:
+                continue
+            ex = target - o
+            if 0 < ex <= o * cfg["over_max_pct"] / 100.0 and (_round_units(ex) or ex == (o * int(cfg["over_max_pct"]) + 50) // 100):
                 hits.add(i)
         return next(iter(hits)) if len(hits) == 1 else None
 
@@ -359,6 +387,14 @@ class CustomerMatcher:
                 a = {"item_id": s.item_id[i], "amount": abs(ledger.open(i)) / 100.0, "exception": "SHORT_BANK_CHARGES",
                      "source": "bank_charges", "confidence": 0.85}
                 return MatchProposal(tid, s.party[i], "bank_charges", 0.85, [], [a], False, ev)
+
+        # 3c. a round top-up over one invoice -> OVERPAYMENT, item fully cleared at its open amount
+        if cfg["use_overpayment"] and side == "AR" and not fx:
+            i = self._overpayment(target, cur, side, entities, parties, strong_refs, ledger)
+            if i is not None:
+                a = {"item_id": s.item_id[i], "amount": abs(ledger.open(i)) / 100.0, "exception": "OVERPAYMENT",
+                     "source": "overpayment", "confidence": 0.8}
+                return MatchProposal(tid, s.party[i], "overpayment", 0.8, [], [a], False, ev)
 
         # 4. partial hint on a single strongly referenced item
         if cfg["partial_hint"] and len(strong_refs) == 1:
