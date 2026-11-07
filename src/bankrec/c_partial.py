@@ -181,26 +181,20 @@ def _load_model(ctx: Ctx):
     return joblib.load(path) if os.path.exists(path) else None
 
 
-def partial_payments(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+PARTY_MIN_SCORE = 0.6     # PartyResolver score of the best customer candidate (1.0 = IBAN; names scored by text coverage)
+
+
+def _parties(ctx: Ctx, lines: pl.DataFrame, items: pl.DataFrame) -> list[tuple[str, str]]:
+    """(bank_txn_id, customer_id) for lines whose payer is identified: exact name keys / IBAN first (ar_multi's automata);
+    where they find nobody, Person B's PartyResolver (fuzzy / truncated names, trade names) as a fallback when importable."""
     from .ar_multi import _automata
-    m = _load_model(ctx)
-    if m is None:
-        return empty_rows()
-    items = ctx.items.filter((pl.col("item_type") == "ARI") & (pl.col("open_amount") > 0)).select(
-        "item_id", "entity", "party_id", "party_name", "currency", "docnorm", "issue_date", "due_date", "total", "open_amount")
-    lines = (pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id")
-             .select("bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("cash"),
-                     norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("iban")).sort("booking_date"))
-    if not lines.height:
-        return empty_rows()
     autos = _automata(ctx, items)
     iban2p = defaultdict(set)
     for ent, p, ib in ctx.customers.select("entity", "customer_id", "iban").iter_rows():
         if ib:
             iban2p[(ent, ib)].add(p)
-    # party per line: longest name key / IBAN; ambiguous -> skip
-    party = []
-    for txn, ent, t, ib in lines.select("bank_txn_id", "entity", "tnorm", "iban").iter_rows():
+    out, missing = [], []
+    for txn, ent, t, ib, raw, nm in lines.select("bank_txn_id", "entity", "tnorm", "iban", "raw", "cp_name").iter_rows():
         best, bl = None, 0
         if ib and len(iban2p.get((ent, ib), ())) == 1:
             best, bl = next(iter(iban2p[(ent, ib)])), 99
@@ -212,7 +206,39 @@ def partial_payments(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
                 elif L == bl and best not in ps:
                     best = None
         if best:
-            party.append((txn, best))
+            out.append((txn, best))
+        elif bl == 0:
+            missing.append((txn, ent, raw, nm, ib))
+    if missing:
+        try:
+            import sys
+            src = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            if src not in sys.path:
+                sys.path.insert(0, src)
+            from matching.party_resolver import PartyResolver
+            pr = PartyResolver(ctx.customers.to_pandas().fillna(""), ctx.suppliers.to_pandas().fillna(""))
+            for txn, ent, raw, nm, ib in missing:
+                cands = [c for c in pr.resolve(raw, nm, ib or "", {ent}, top_k=3) if str(c.party_id).startswith("C")]
+                if cands and cands[0].score >= PARTY_MIN_SCORE and (len(cands) == 1 or cands[0].score > cands[1].score):
+                    out.append((txn, cands[0].party_id))
+        except Exception:
+            pass
+    return out
+
+
+def partial_payments(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    m = _load_model(ctx)
+    if m is None:
+        return empty_rows()
+    items = ctx.items.filter((pl.col("item_type") == "ARI") & (pl.col("open_amount") > 0)).select(
+        "item_id", "entity", "party_id", "party_name", "currency", "docnorm", "issue_date", "due_date", "total", "open_amount")
+    lines = (pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id")
+             .select("bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("cash"),
+                     norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("iban"),
+                     pl.col("alltext").fill_null("").alias("raw"), pl.col("counterparty_name").fill_null("").alias("cp_name")).sort("booking_date"))
+    if not lines.height:
+        return empty_rows()
+    party = _parties(ctx, lines, items)
     if not party:
         return empty_rows()
     lp = lines.join(pl.DataFrame(party, schema={"bank_txn_id": pl.Utf8, "party_id": pl.Utf8}, orient="row"), on="bank_txn_id")
