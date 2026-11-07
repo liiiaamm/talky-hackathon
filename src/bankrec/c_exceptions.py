@@ -300,9 +300,13 @@ def fx_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return out.select("bank_txn_id", "item_id", "amount", "category", "exception", "module")
 
 
-# Late resolvers: they need the first payments already claimed (duplicates) and the open set settled down (overpayments).
-# bank_charges is exposed early through c_bank_charges.py. Pipeline order (BANKREC_ORDER):
-#   remittance,pdf_clauses,c_bank_charges,ar_text,ar_exact,ar_multi,c_exceptions
-# overpayments is NOT exposed yet: 6/43 precision on the sample (a parent paying for subsidiaries defeats the
-# "customer has exactly one open invoice" test). Follow-up once a group-aware payer check exists.
-RESOLVERS = [duplicates, fx_receipts]
+# Exposure (measured on feat/b-ar-hard, both TRAIN windows, see PR):
+#   bank_charges  -> c_bank_charges.py, placed AFTER ar_text/ar_exact/ar_multi: it only takes what ar_text's own
+#                    bank-charges rule leaves (SHORT_BANK_CHARGES F1 0.745 -> 0.823 / 0.743 -> 0.785). Placed before
+#                    ar_text it steals lines and is a wash.
+#   fx_receipts   -> c_fx.py, last.
+#   duplicates    -> NOT exposed: on top of ar_text's duplicate rule (100 % precision) it adds 200 lines at 45 %.
+#   overpayments  -> NOT exposed: 6/43 precision on the sample (a parent paying for subsidiaries defeats the
+#                    single-open-invoice test). Both kept as reference implementations.
+# Recommended BANKREC_ORDER: remittance,pdf_clauses,ar_text,ar_exact,ar_multi,c_bank_charges,c_fx
+RESOLVERS: list = []
