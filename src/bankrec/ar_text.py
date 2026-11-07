@@ -119,7 +119,8 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         for a in p.allocations:
             i = store.pos[a["item_id"]]
             c = int(round(a["amount"] * 100))
-            if c <= 0 or c > abs(ledger.open(i)) or i in idx:
+            dup = a["exception"] == "DUPLICATE_PAYMENT"      # pays an item already settled: leaves the balance
+            if c <= 0 or (not dup and c > abs(ledger.open(i))) or i in idx:
                 ok = False
                 break
             idx.append(i)
@@ -127,13 +128,15 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
             continue
         for a, i in zip(p.allocations, idx):
             c = int(round(a["amount"] * 100))
-            ledger.o[i] -= c if ledger.o[i] > 0 else -c
+            if a["exception"] != "DUPLICATE_PAYMENT":
+                ledger.o[i] -= c if ledger.o[i] > 0 else -c
             out["bank_txn_id"].append(t.bank_txn_id)
             out["item_id"].append(a["item_id"])
             out["amount"].append(round(c / 100, 2))
             out["category"].append(None)
             out["exception"].append(a["exception"])
             out["module"].append(f"ar_{p.match_method}")
+        matcher.record(p, int(round(abs(float(t.amount)) * 100)), pd.Timestamp(t.booking_date).toordinal())
     return pl.DataFrame(out, schema=ROWS_SCHEMA)
 
 

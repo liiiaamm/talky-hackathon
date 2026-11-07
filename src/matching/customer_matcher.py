@@ -125,12 +125,14 @@ class CustomerMatcher:
             for r in fx.sort_values("date").itertuples(index=False):
                 self.units_per_eur.setdefault(r.currency, []).append((str(r.date), float(r.units_per_eur)))
         self.scope = entity_scope        # line entity -> set of item entities it may settle
+        self.closed = defaultdict(list)  # party -> [(cash cents, item idx, booking ordinal)] of lines that fully closed one item
         self.cfg = {"use_iban": True, "use_names": True, "use_refs": True, "use_digit_refs": True,
                     "use_subset": True, "use_group": True, "use_month": True, "partial_hint": True,
                     "fx": True, "max_pool": 60, "node_budget": 20000, "min_party_score": 0.55,
                     "top_parties": 8, "use_discount": True, "use_withholding": True, "grace_days": 3,
                     "withholding_bp": [125, 150, 1000], "withholding_countries": ["MX", "BR", "MA"], "mode_node_budget": 500, "ambiguity_abstain": False,
-                    "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0}
+                    "use_bank_charges": True, "charges_cap_eur": 60.0, "charges_cap_pct": 2.0,
+                    "use_duplicates": True, "duplicate_days": 31}
         if cfg:
             self.cfg.update(cfg)
 
@@ -232,6 +234,32 @@ class CustomerMatcher:
                 hits.add(i)
         return next(iter(hits)) if len(hits) == 1 else None
 
+    # ------------------------------------------------------------------ duplicate payments (POLICIES §3)
+    def record(self, proposal, cash_cents, booking_ord):
+        """Called by the caller after it accepted a proposal: remember single-item full settlements by the exact cash."""
+        al = proposal.allocations
+        if len(al) == 1 and al[0]["exception"] == "" and int(round(al[0]["amount"] * 100)) == cash_cents:
+            i = self.s.pos[al[0]["item_id"]]
+            self.closed[self.s.party[i]].append((cash_cents, i, booking_ord))
+
+    def _duplicate(self, target, parties, ledger, bord):
+        """The same payer paid exactly this cash for one item it had already settled in full within `duplicate_days`,
+        and none of its open items has that amount: unique such item -> DUPLICATE_PAYMENT."""
+        hits = set()
+        for p in parties[: self.cfg["top_parties"]]:
+            for c, i, d in self.closed.get(p, ()):
+                if c == target and 0 < bord - d <= self.cfg["duplicate_days"] and ledger.open(i) == 0:
+                    hits.add(i)
+        return next(iter(hits)) if len(hits) == 1 else None
+
+    def _open_with_amount(self, target, cur, side, entities, parties, ledger):
+        s = self.s
+        for p in parties[: self.cfg["top_parties"]]:
+            for i in s.by_party.get(p, ()):
+                if s.side[i] == side and s.currency[i] == cur and s.entity[i] in entities and s.sign[i] * ledger.open(i) == target:
+                    return True
+        return False
+
     # ------------------------------------------------------------------ main
     def match(self, line, ledger) -> MatchProposal:
         s, cfg = self.s, self.cfg
@@ -294,6 +322,15 @@ class CustomerMatcher:
                 if c.score >= cfg["min_party_score"] and c.party_id not in parties:
                     parties.append(c.party_id)
         month = service_month(blob) if cfg["use_month"] else None
+
+        # 2b. a repeat of an earlier full payment of one invoice, with nothing else open at that amount
+        if cfg["use_duplicates"] and side == "AR" and not fx and parties and not strong_refs \
+                and not self._open_with_amount(target, cur, side, entities, parties, ledger):
+            i = self._duplicate(target, parties, ledger, bord)
+            if i is not None:
+                a = {"item_id": s.item_id[i], "amount": target / 100.0, "exception": "DUPLICATE_PAYMENT",
+                     "source": "duplicate", "confidence": 0.8}
+                return MatchProposal(tid, s.party[i], "duplicate", 0.8, [], [a], False, ev)
 
         if cfg["use_subset"]:
             for mode, fn in modes:
