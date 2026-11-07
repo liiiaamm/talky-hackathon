@@ -4,11 +4,14 @@ A customer's advice (csv/xlsx/txt/pdf, parsed by remittance_parse) lists the doc
 reasons. We link each advice to the receipt (same entity, same amount, booking within a few days of the advice), map its
 documents to our items, and set amounts/exceptions from the advice (POLICIES §2-§3):
 
-    recognised reason, or a shortfall that satisfies a policy formula -> SHORT_DISCOUNT / PARTIAL (late) / SHORT_WITHHOLDING
+    recognised / learned reason, or a shortfall that satisfies a policy formula
+                                                                      -> SHORT_DISCOUNT / PARTIAL (late) / SHORT_WITHHOLDING
     unrecognised stated reason                                        -> SHORT_DISPUTE (amount actually paid)
     unexplained shortfall                                             -> PARTIAL
     credit note rows                                                  -> positive amount, no exception
     receipt in another currency                                       -> FX_DIFFERENCE on fully-cleared invoice rows
+    gross-only advice whose transfer is lower than its documents      -> gap attributed to the documents it is a policy
+                                                                         formula of (unique subset), else abstain
 See the CONFIG block for every constant and the policy clause it comes from.
 """
 from __future__ import annotations
@@ -46,14 +49,29 @@ WHT_PREFIXES = ("WITHHOLD", "RETENC", "RETENÇ", "RETENU", "RITENUT", "QUELLENST
 # ("RET" — the Brazilian advices' abbreviation for retenção — is deliberately NOT listed: the arithmetic fallback must
 #  recover it on its own. That is the regression test for the vocabulary-free path.)
 
+# Reason codes learned from the advices themselves (no labels): a stated reason whose deductions satisfy a policy formula
+# on ≥ REASON_ALIAS_SHARE of its lines is an alias of that class (e.g. an abbreviation we have no word for); a reason seen on
+# ≥ REASON_MIN_SUPPORT deductions that does NOT behave like a formula is a dispute reason, and a coincidental formula match
+# (a 10 % "short delivery" for a withholding-country customer) no longer overrides it. Rarer reasons: arithmetic decides.
+# Measured on TRAIN advices: withholding / discount codes fit their formula on 100 % of lines, dispute reasons on ~20 %.
+REASON_MIN_SUPPORT = 20
+REASON_ALIAS_SHARE = 0.9
+
+# Advices that list only gross document amounts (no deduction column) while the transfer total is lower: the gap is
+# explained if it equals ONE policy formula (each document's own discount, or withholding at one rate) summed over a
+# UNIQUE subset of the listed documents (exact cents); otherwise, as an unplanned partial payment (POLICIES §3 PARTIAL),
+# if it leaves a whole-percent share (PARTIAL_SHARE_STEP) of exactly one document paid. Two explanations, or a subset
+# search with more than SUBSET_MAX_STATES partial sums -> abstain (amounts stay as listed).
+PARTIAL_SHARE_STEP = 0.01
+SUBSET_MAX_STATES = 200_000
+
 # Decision order for a shortfall on an invoice (POLICIES §3):
-#   1. stated reason we recognise         -> that class (data check: 100 % of such rows also satisfy the formula)
-#   2. shortfall satisfies a policy formula -> that class (discount % of total; withholding rate × total, customer in a
-#                                             withholding country). Used for unstated or unrecognised reasons.
-#   3. stated reason we do not recognise  -> SHORT_DISPUTE ("deducted an amount with a stated reason")
-#   4. nothing explains it                 -> PARTIAL
-# Measured cost of step 2 over-riding an unrecognised reason: 197 of 17,431 stated disputes in TRAIN (1.1 %) equal a
-# withholding rate for a withholding-country customer; 0 equal a discount formula.
+#   1. stated reason we recognise or learned as an alias -> that class
+#   2. stated reason learned as a dispute reason         -> SHORT_DISPUTE (arithmetic may not override it)
+#   3. shortfall satisfies a policy formula              -> that class (discount % of total; withholding rate × total,
+#                                                           customer in a withholding country). Unstated / rare reasons.
+#   4. stated reason we do not recognise                 -> SHORT_DISPUTE ("deducted an amount with a stated reason")
+#   5. nothing explains it                               -> PARTIAL
 # =====================================================================================================================
 
 
@@ -74,12 +92,16 @@ def fits(short: float, total: float, rate: float) -> bool:
     return abs(short - round(total * rate, 2)) <= AMT_TOL
 
 
-def explain_shortfall(short: float, total: float, reason: str, discount_pct: float | None, in_wht_country: bool) -> str:
-    """Return 'DISCOUNT' | 'WHT' | 'DISPUTE' | 'PARTIAL' for an invoice paid `short` less than its open amount."""
+def explain_shortfall(short: float, total: float, reason: str, discount_pct: float | None, in_wht_country: bool,
+                      reason_kind: str | None = None) -> str:
+    """Return 'DISCOUNT' | 'WHT' | 'DISPUTE' | 'PARTIAL' for an invoice paid `short` less than its open amount.
+    reason_kind: what the advices say about this reason code (see reason_kinds): 'DISCOUNT' | 'WHT' | 'DISPUTE' | None."""
     if reason and is_discount(reason):
         return "DISCOUNT"
     if reason and is_wht(reason):
         return "WHT"
+    if reason and reason_kind:
+        return reason_kind
     if discount_pct and fits(short, total, discount_pct):
         return "DISCOUNT"
     if (in_wht_country or not WHT_COUNTRIES) and any(fits(short, total, r) for r in WHT_RATES):
@@ -88,6 +110,92 @@ def explain_shortfall(short: float, total: float, reason: str, discount_pct: flo
 
 
 PHASES_ALL = ("train", "live", "final")
+
+
+def reason_kinds(lines: pl.DataFrame, discount_rates) -> dict[str, str]:
+    """Label-free profile of each stated reason over every parsed advice line of the phase: share of its deductions that
+    equal a withholding rate × gross, or a discount rate (any in payment_terms) × gross. See REASON_* in CONFIG."""
+    d = (lines.filter(pl.col("reason").is_not_null() & pl.col("gross").is_not_null() & pl.col("paid").is_not_null())
+         .with_columns(pl.col("reason").str.to_uppercase().str.strip_chars().alias("r"), pl.col("gross").abs().alias("g"),
+                       (pl.col("gross").abs() - pl.col("paid").abs()).alias("ded"))
+         .filter(pl.col("ded") > AMT_TOL))
+    if not d.height:
+        return {}
+    fit = lambda rates: pl.any_horizontal([(pl.col("ded") - (pl.col("g") * r).round(2)).abs() <= AMT_TOL for r in rates] or [pl.lit(False)])  # noqa: E731
+    prof = d.group_by("r").agg(pl.len().alias("n"), fit(WHT_RATES).mean().alias("wht"), fit(discount_rates).mean().alias("disc"))
+    out = {}
+    for r, n, wht, disc in prof.iter_rows():
+        if n < REASON_MIN_SUPPORT:
+            continue
+        out[r] = "WHT" if wht >= REASON_ALIAS_SHARE else "DISCOUNT" if disc >= REASON_ALIAS_SHARE else "DISPUTE"
+    return out
+
+
+def _gap_paid(m: pl.DataFrame, lines: pl.DataFrame, terms: dict, country: dict) -> dict:
+    """Advices whose listed amounts add up to more than the transfer (gross-only layouts): attribute the gap to the
+    documents it is a policy formula of (see CONFIG). Returns {(file, item_id): amount actually paid}."""
+    adv = (lines.join(m.select("file").unique(), on="file", how="semi")
+           .group_by("file").agg(pl.col("paid").sum().alias("listed"), pl.len().alias("n_lines"), pl.first("total").alias("adv_total")))
+    adv = adv.with_columns((pl.col("listed") - pl.col("adv_total")).round(2).alias("gap")).filter(pl.col("gap") > AMT_TOL)
+    if not adv.height:
+        return {}
+    rows = (m.join(adv, on="file", how="inner")
+            .select("file", "item_id", "item_type", "party_id", "total", "open_amount", "paid", "payment_terms", "n_lines", "gap"))
+    out = {}
+    for (f,), g in rows.group_by(["file"]):
+        if g.height != g["n_lines"][0] or g["paid"].is_null().any():   # a listed document we could not map: abstain
+            continue
+        gap = g["gap"][0]
+        docs = [(r["item_id"], r["open_amount"] if r["open_amount"] is not None else r["total"], r["total"],
+                 terms.get(r["payment_terms"]), country.get(r["party_id"]) in WHT_COUNTRIES or not WHT_COUNTRIES)
+                for r in g.iter_rows(named=True) if r["item_type"] == "ARI"]
+        if not docs:
+            continue
+        # one policy formula (the document's discount, or withholding at one rate) on a unique subset of the documents
+        families = [[round(d[2] * d[3][0], 2) if d[3] else None for d in docs]]
+        families += [[round(d[2] * r, 2) if d[4] else None for d in docs] for r in WHT_RATES]
+        sols = []
+        for ded in families:
+            idx = [i for i, x in enumerate(ded) if x]
+            pick = unique_subset([round(ded[i] * 100) for i in idx], round(gap * 100))
+            if pick is not None:
+                sols.append({docs[idx[k]][0]: docs[idx[k]][1] - ded[idx[k]] for k in pick})
+        found = sols[0] if len(sols) == 1 else None
+        if not sols:   # unplanned partial payment: a whole-percent share of exactly one document
+            steps = round(1 / PARTIAL_SHARE_STEP)
+            c = [d for d in docs if d[1] > gap + AMT_TOL and
+                 abs((d[1] - gap) - round(d[1] * round((d[1] - gap) / d[1] * steps) / steps, 2)) <= AMT_TOL]
+            if len(c) == 1:
+                found = {c[0][0]: c[0][1] - gap}
+        for item_id, paid in (found or {}).items():
+            out[(f, item_id)] = round(paid, 2)
+    return out
+
+
+def unique_subset(values: list[int], target: int) -> list[int] | None:
+    """Indices of the only subset of `values` (cents) that sums to `target`; None when there is none or more than one."""
+    if target <= 0 or not values or sum(values) < target:
+        return None
+    # suffix[i] = {sum: number of subsets of values[i:] reaching it (capped at 2)}, sums above target pruned
+    suffix = [None] * len(values) + [{0: 1}]
+    for i in range(len(values) - 1, -1, -1):
+        cur = dict(suffix[i + 1])
+        for s, w in suffix[i + 1].items():
+            t = s + values[i]
+            if t <= target:
+                cur[t] = min(cur.get(t, 0) + w, 2)
+        if len(cur) > SUBSET_MAX_STATES:  # too many combinations to call any of them "the" explanation: abstain
+            return None
+        suffix[i] = cur
+    if suffix[0].get(target) != 1:
+        return None
+    pick, s = [], target
+    for i in range(len(values)):
+        if suffix[i + 1].get(s, 0) == 1:
+            continue                      # the unique completion does not use value i
+        pick.append(i)
+        s -= values[i]
+    return pick
 
 
 def _advices(ctx: Ctx) -> tuple[pl.DataFrame, pl.DataFrame] | None:
@@ -210,19 +318,23 @@ def remittances(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     m = _map_docs(ctx, docs).join(pending.select("bank_txn_id", "booking_date"), on="bank_txn_id", how="left")
     terms = _terms(ctx)
     country = dict(ctx.customers.select("customer_id", "country").iter_rows())
+    kinds = reason_kinds(lines, sorted({t[0] for t in terms.values()}))
+    gap_paid = _gap_paid(m, lines, terms, country)
 
     rows = []
     for r in m.iter_rows(named=True):
         open_amt = r["open_amount"] if r["open_amount"] is not None else r["total"]
         paid = abs(r["paid"]) if r["paid"] is not None else abs(r["gross"])
-        reason = (r["reason"] or "").upper()
+        paid = gap_paid.get((r["file"], r["item_id"]), paid)
+        reason = (r["reason"] or "").upper().strip()
         exc, amount = "", open_amt
         if r["item_type"] == "ARC":                                   # credit note netted: full amount, positive, no exception
             amount = abs(r["gross"]) if r["gross"] is not None else open_amt
         elif paid is not None and paid < open_amt - max(AMT_TOL, 0.005 * open_amt):
             short, total = open_amt - paid, r["total"]
             t = terms.get(r["payment_terms"])
-            kind = explain_shortfall(short, total, reason, t[0] if t else None, country.get(r["party_id"]) in WHT_COUNTRIES)
+            kind = explain_shortfall(short, total, reason, t[0] if t else None, country.get(r["party_id"]) in WHT_COUNTRIES,
+                                     kinds.get(reason))
             if kind == "DISCOUNT":
                 in_terms = bool(t) and date.fromisoformat(r["booking_date"]) <= (
                     date.fromisoformat(r["issue_date"]) + timedelta(days=t[1] + DISCOUNT_GRACE_DAYS))
