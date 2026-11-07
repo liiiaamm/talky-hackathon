@@ -107,6 +107,7 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     # ledger (BANKREC_LEDGER=1). Without it they cost precision (TRAIN 2025-H1 90.81 -> 90.68). Override in the cfg.
     anchors = cfg.pop("weak_anchors", os.environ.get("BANKREC_LEDGER", "0") == "1")
     cfg["weak_anchors"] = anchors
+    cfg.setdefault("anchor_complete", anchors)   # measured with the ledger on only (+0.26 / +0.28)
     store = ItemStore(items, suffix_tails=anchors)
     cu, su = ctx.customers.to_pandas().fillna(""), ctx.suppliers.to_pandas().fillna("")
     matcher = CustomerMatcher(store, PartyResolver(cu, su), _entity_scope(ctx), cfg, terms=ctx.terms.to_pandas().fillna(""),
