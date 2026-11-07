@@ -4,9 +4,14 @@
 #   tools/heavy.sh full  <cmd ...>   # full pipeline incl. ar_text (~6 min, ~8 GB)
 # One heavy run at a time; waits in line. Logs who holds it in /tmp/bankrec_locks/holder.
 set -euo pipefail
-L=/tmp/bankrec_locks
+L="${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"
 mkdir -p "$L"
 mode="${1:?quick|full}"; shift
+# A parent (tools/prepare_final.sh) already holds the lock for the whole runbook: run directly, locking again would deadlock.
+if [[ -n "${HEAVY_LOCK_HELD:-}" ]]; then
+    echo "[heavy.sh] lock already held by the parent ($mode) at $(date +%H:%M:%S)" >&2
+    exec "$@"
+fi
 exec 9>"$L/run.lock"
 echo "[heavy.sh] waiting for the lock ($mode) ... holder: $(cat "$L/holder" 2>/dev/null || echo none)" >&2
 flock 9
