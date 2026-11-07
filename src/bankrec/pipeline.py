@@ -28,7 +28,7 @@ except ImportError:
     LATE = []
 MODULES.extend(det.LATE_AP)
 _SKIP = set(filter(None, __import__("os").environ.get("BANKREC_SKIP", "").split(",")))   # e.g. BANKREC_SKIP=ra_advices,remittance
-_ORDER = __import__("os").environ.get("BANKREC_ORDER", "remittance,pdf_clauses,ar_text,ar_exact,ar_multi").split(",")   # optional modules, in order
+_ORDER = __import__("os").environ.get("BANKREC_ORDER", "remittance,pdf_clauses,ar_text,ar_exact,ar_multi,ar_due_subset").split(",")   # optional modules, in order
 for _name in _ORDER:       # teammates' modules: expose RESOLVERS = [f, ...]
     if _name in _SKIP:
         continue
@@ -108,6 +108,7 @@ def run(ctx: Ctx, modules=None, verbose=True, *, safe=False, profile=False) -> p
     modules = MODULES if modules is None else modules
     pending = ctx.bank
     out = []
+    ctx.__dict__["_claimed"] = out      # read-only view of the rows accepted so far (ar_due_subset)
     for f in modules:
         t0 = time.perf_counter()
         old_items, old_all_items = ctx.items, ctx.all_items
