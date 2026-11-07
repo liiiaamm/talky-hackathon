@@ -335,8 +335,44 @@ def bank_charges(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     c = c.join(_exactly_explained(ctx, c, probe=probe).select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
     if not c.height:
         return empty_rows()
+    # … nor a combination of ANY size of the payer's recent open invoices (then it is a multi-invoice payment, no fee)
+    c = c.join(_explained_by_any_subset(ctx, c, items), on="bank_txn_id", how="anti")
+    if not c.height:
+        return empty_rows()
     out = _unique_solution(c)
     return mk_rows(out.with_columns(pl.col("open").alias("amount")), "c_bank_charges", "SHORT_BANK_CHARGES")
+
+
+def _explained_by_any_subset(ctx: Ctx, c: pl.DataFrame, items: pl.DataFrame) -> pl.DataFrame:
+    """bank_txn_id of candidate lines whose cash is an exact sum of 2+ open invoices of the candidate payer issued in the last
+    MAX_AGE_DAYS (c_bulk's window); pools above c_bulk.MAX_POOL are not searched (no exclusion)."""
+    import numpy as np
+    from .c_bulk import MAX_AGE_DAYS, MAX_CENTS, MAX_POOL
+    keys = c.select("bank_txn_id", "party_id", "entity", "currency", "cash", "booking_date").unique(["bank_txn_id", "party_id"])
+    pool = keys.join(items.select("party_id", "entity", "currency", "open", "issue_date"), on=["party_id", "entity", "currency"]).with_columns(
+        (pl.col("booking_date").str.slice(0, 10).str.to_date() - pl.col("issue_date").str.slice(0, 10).str.to_date()).dt.total_days().alias("age")
+    ).filter((pl.col("age") >= 0) & (pl.col("age") <= MAX_AGE_DAYS))
+    hit = []
+    for (tid,), g in pool.group_by("bank_txn_id"):
+        target = int(round(float(g["cash"][0]) * 100))
+        vals = [int(round(float(x) * 100)) for x in g["open"].to_list()]
+        if len(vals) < 2 or len(vals) > MAX_POOL or target > MAX_CENTS:
+            continue
+        reach = np.zeros(target + 1, bool); reach[0] = True
+        two = np.zeros(target + 1, bool)          # reachable with 2+ invoices
+        one = np.zeros(target + 1, bool)
+        for v in vals:
+            if v > target:
+                continue
+            new_two = two[:target + 1 - v] | one[:target + 1 - v]
+            new_one = reach[:target + 1 - v]
+            two[v:] |= new_two
+            one[v:] |= new_one
+            reach = one | two
+            reach[0] = True
+        if two[target]:
+            hit.append(tid)
+    return pl.DataFrame({"bank_txn_id": hit}, schema={"bank_txn_id": pl.Utf8})
 
 
 # =====================================================================================================================
