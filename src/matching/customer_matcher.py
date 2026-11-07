@@ -100,6 +100,10 @@ class ItemStore:
                 self.digits[(e, k.digits)].append(i)
             for t in k.tails:
                 self.tails[(e, t)].append(i)
+            # customers abbreviate a run of invoices to their last six digits ("FA250112467 112647 112745")
+            suf = k.digits[-6:].lstrip("0") if len(k.digits) > 6 else ""
+            if len(suf) >= 5 and suf not in k.tails:
+                self.tails[(e, suf)].append(i)
         if "po" in it:
             self.po = defaultdict(list)
             for i, (e, p) in enumerate(zip(self.entity, it.po.to_numpy())):
@@ -418,6 +422,11 @@ class CustomerMatcher:
         if not pool:
             return None
         forced = [i for i in pool if refs.get(i, 0) >= 1.0]
+        # abbreviated citations ("FA250112467 112647 112745"): when two or more of this payer's own open items are hit by
+        # digit / tail references, they anchor the search and only the residual is searched
+        weak = [i for i in pool if 0 < refs.get(i, 0) < 1.0]
+        if cfg.get("weak_anchors", True) and len(forced) + len(weak) >= 2 and weak:
+            forced = forced + weak
         # preference order: referenced first, then service-month match, then oldest (FIFO)
         if month:
             y, m = month
