@@ -124,9 +124,14 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
                                                                       norm_expr("party_name").str.slice(0, 10).alias("k0"))
     exp = exp.join(open_ari, on="item_id")
     lines = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null()).join(_acc_entity(ctx), on="account_id").select(
-        "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("exp"),
+        "bank_txn_id", "booking_date", "currency", pl.col("acc_entity").alias("entity"), pl.col("abs_amt").round(2).alias("cash"),
+        (pl.col("abs_amt") * 100).round(0).cast(pl.Int64).alias("ck"),
         norm_expr("alltext").alias("tnorm"), pl.col("counterparty_account").alias("cp_iban"))
-    c = lines.join(exp, on=["entity", "currency", "exp"]).filter(pl.col("issue_date") <= pl.col("booking_date")).join(
+    # amounts printed on a PDF are rounded on their own (payable = total - retention, instalment splits): allow one cent of
+    # difference between the clause amount and the cash (POLICIES §2 tolerance is max(0.01, 0.5 %)); the row keeps the cash.
+    exp = exp.with_columns((pl.col("exp") * 100).round(0).cast(pl.Int64).alias("ck"))
+    exp = pl.concat([exp.with_columns((pl.col("ck") + d).alias("ck")) for d in (-1, 0, 1)])
+    c = lines.join(exp, on=["entity", "currency", "ck"]).filter(pl.col("issue_date") <= pl.col("booking_date")).join(
         _names(ctx), on="party_id", how="left")
 
     def has(k):
@@ -144,7 +149,7 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind", "k"], keep="first", maintain_order=True)
     exc = (pl.when(pl.col("kind") == "INST").then(pl.when(pl.col("k") < pl.col("n")).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
            .when(pl.col("kind").is_in(["RET1", "ADV"])).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
-    return mk_rows(c.with_columns(pl.col("exp").alias("amount")), "pdf_clause", exc)
+    return mk_rows(c.with_columns(pl.col("cash").alias("amount")), "pdf_clause", exc)
 
 
 def replaced_invoices(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
