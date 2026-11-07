@@ -14,7 +14,8 @@ if [[ -n "${HEAVY_LOCK_HELD:-}" ]]; then
 fi
 exec 9>"$L/run.lock"
 echo "[heavy.sh] waiting for the lock ($mode) ... holder: $(cat "$L/holder" 2>/dev/null || echo none)" >&2
-flock 9
+# macOS has no flock(1): take the same flock(2) lock on the inherited fd with Python (held until the fd closes)
+if command -v flock >/dev/null; then flock 9; else "${PYTHON_BIN:-python3}" -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)'; fi
 echo "$$ $mode $(date +%H:%M:%S) $PWD :: $*" > "$L/holder"
 echo "[heavy.sh] got the lock at $(date +%H:%M:%S)" >&2
 set +e; "$@"

@@ -149,10 +149,25 @@ def parse_phase(phase: str, force: bool = False, workers: int = 6) -> pl.DataFra
 
 
 # ---------------------------------------------------------------- shared helpers
+PHASE_ORDER = ("sample", "train", "live", "final")
+
+
+def _clauses_upto(phase: str) -> pl.DataFrame | None:
+    """Clauses of this phase's PDFs and of every EARLIER phase (port of INT6 3722bd8): an invoice still open at the phase start
+    keeps the clause printed on its PDF, which sits in the folder of the phase it was issued in. Never reads a later phase."""
+    if phase not in PHASE_ORDER:
+        return parse_phase(phase)
+    parts = [x for x in (parse_phase(ph) for ph in PHASE_ORDER[1:PHASE_ORDER.index(phase) + 1] if ph != "sample" or phase == "sample")
+             if x is not None and x.height]
+    if not parts:
+        return None
+    return pl.concat(parts, how="vertical_relaxed").unique(["entity", "document_number", "kind"], keep="last", maintain_order=True)
+
+
 def _clauses(ctx: Ctx) -> pl.DataFrame | None:
     c = ctx.__dict__.setdefault("_cache", {})
     if "pdf_clauses" not in c:
-        cl = parse_phase(ctx.phase)
+        cl = _clauses_upto(ctx.phase)
         c["pdf_clauses"] = None if cl is None or cl.height == 0 else cl.with_columns(norm_expr("document_number").alias("docnorm"))
     return c["pdf_clauses"]
 

@@ -16,6 +16,7 @@ Decision order (each step only fires on an exact cent match unless stated):
 from __future__ import annotations
 
 import bisect
+import os
 import re
 
 from collections import defaultdict
@@ -121,6 +122,20 @@ class ItemStore:
         k = doc_keys(document_number)
         idx = self.strong.get((entity, k.strong), []) or self.digits.get((entity, k.digits), [])
         return [self.item_id[i] for i in idx]
+
+
+class _IssuedBy:
+    """INT7 (BANKREC_ISSUE_GATE=1): ledger view for one bank line in which items issued after the booking date are not open.
+    Accounting invariant: a payment cannot settle a document that does not exist yet (prepayments are advances, not items)."""
+
+    def __init__(self, ledger, issue_ord, bord):
+        self._l, self._iss, self._b = ledger, issue_ord, bord
+
+    def open(self, i):
+        return 0 if self._iss[i] > self._b else self._l.open(i)
+
+    def __getattr__(self, name):
+        return getattr(self._l, name)
 
 
 class CustomerMatcher:
@@ -312,6 +327,8 @@ class CustomerMatcher:
         blob = " ".join((line.text, line.ref1, line.ref2, line.remittance_info, line.end_to_end_id))
         ev = {"side": side, "target": target, "currency": cur}
         bord = pd.Timestamp(line.booking_date).toordinal() if line.booking_date else 0
+        if bord and os.environ.get("BANKREC_ISSUE_GATE") == "1":
+            ledger = _IssuedBy(ledger, s.issue_ord, bord)
         modes = self._modes(bord) if side == "AR" else [("full", None)]
 
         refs = self.reference_hits(blob, entities, side) if cfg["use_refs"] else {}
