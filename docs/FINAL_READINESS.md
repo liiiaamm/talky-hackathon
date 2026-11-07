@@ -1,18 +1,18 @@
 # FINAL readiness checklist (18:00 – 19:30)
 
-Primary candidate: **DC7**, branch `final/dc7`, commit `f1e6ec7` (LIVE 93.80).
-Fallback 1: INT6 + C + gate, commit `82f4364` (local branch `local/int7-final`, Jack's machine).
-Fallback 2: INT6, branch `local/int6-final`, commit `7b56c20`.
+Primary candidate: **DC7+C**, `main` commit `c1e5dff` (LIVE 93.98, 13 resolvers).
+Fallback 1: DC7, branch `final/dc7`, commit `f1e6ec7` (LIVE 93.80).
+Fallback 2: INT6 + C + gate, commit `82f4364` (local branch `local/int7-final`, Jack's machine).
 FINAL = **one scored submission per team**. Nothing is submitted without explicit team approval.
 
 ## 0. Before 18:00
-- [ ] Checkout of `f1e6ec7` in its own directory (never reuse a rehearsal folder with symlinked `data/final`).
+- [ ] Checkout of `c1e5dff` in its own directory (never reuse a rehearsal folder with symlinked `data/final`).
 - [ ] Venv with `requirements.txt` installed; `python -c "import ahocorasick, lightgbm, sklearn, pypdf, openpyxl"` works.
 - [ ] Models available and hashes match `tools/final_config.sh`:
       `cat_all.joblib` = `b38a54f1f4af6efb006d18eeb29e92208e22ca7aca2ee116c9f33ef61e313220`,
       `c_partial_2025-07-01.joblib` = `acfb6c2465ece2183e4b9006aa2b72034396f66b6a6ae296788eeaac5ccea7e5`
       (`shasum -a 256 <file>`).
-- [ ] At least 8 GB free RAM and 5 GB free disk; no other heavy job running.
+- [ ] At least 25 GB free RAM (DC7+C peaked at 23.3 GB on LIVE) and 5 GB free disk; no other heavy job running.
 
 ## 1. Run (from the repository root)
 ```bash
@@ -51,11 +51,11 @@ shasum -a 256 out/final.csv.gz
 - Preflight FAIL, non-zero exit, Python traceback, or no `READY` line.
 - `final_checks.py` reports FAIL (missing masters / ZA01 / FX currency / table, remittance coverage < 90 % for a format).
 - Official validation not ok, or missing lines > 0.
-- Model hash mismatch, or a different commit than `f1e6ec7`.
+- Model hash mismatch, or a different commit than `c1e5dff`.
 
 ## Rollback (never overwrite the validated candidate's output)
-1. If the failure is **specific to DC7 code** (traceback in `c_evidence`, `c_duplicates`, `pdf_clauses` v2, or a DC7-only
-   module with zero output): run fallback 1 (`82f4364`) in a **separate checkout** with the same data and the same checks,
+1. If the failure is **specific to the C additions** (traceback in `c_evidence`, `c_duplicates` or `c_overpayment`): run
+   fallback 1 (DC7 `f1e6ec7`, then `82f4364`) in a **separate checkout** with the same data and the same checks,
    writing to a different file (e.g. `out/final_int7.csv.gz`).
 2. If the failure is **common to all candidates** (schema, masters, parser): fallbacks will not help. Fix the data issue
    narrowly, re-run the checks, and keep the previous files.

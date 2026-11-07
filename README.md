@@ -41,7 +41,7 @@ flowchart LR
   D --> PC[pdf_clauses parser] --> L
   L --> DET[Deterministic joins<br/>DD, cards, cheques, payment runs]
   DET --> SC[Strong categories<br/>TF-IDF + LogReg]
-  SC --> C12[12 ordered resolvers]
+  SC --> C12[13 ordered resolvers]
   C12 --> AC[all_categories<br/>+ UNIDENTIFIED]
   LED[(Shared ledger<br/>open balances)] <--> DET & C12
   AC --> O[CSV output] --> V[Official format validation<br/>+ coverage checks]
@@ -59,9 +59,9 @@ flowchart LR
 - **Validation**: the pipeline validates the output format before writing; `tools/official_check.py` runs the official
   scorer's validator and checks bank-line coverage and over-allocation.
 
-## Twelve-stage reconciliation pipeline
+## Thirteen-stage reconciliation pipeline
 
-After the deterministic joins and strong categories, twelve resolvers run in this order (`tools/final_config.sh`):
+After the deterministic joins and strong categories, thirteen resolvers run in this order (`tools/final_config.sh`):
 
 | # | Resolver | What it does |
 |---|---|---|
@@ -76,7 +76,8 @@ After the deterministic joins and strong categories, twelve resolvers run in thi
 | 9 | `c_bank_charges` | Late pass for bank-charge shortfalls. |
 | 10 | `c_fx` | Receipts in another currency than the invoice (`FX_DIFFERENCE`). |
 | 11 | `ar_due_subset` | Last resort: the unique exact subset of the payer's recently due invoices. |
-| 12 | `c_duplicates` | A line repeating an item that is already settled → `DUPLICATE_PAYMENT`. |
+| 12 | `c_duplicates` | A line repeating an item that an earlier line already paid in full → `DUPLICATE_PAYMENT` (otherwise allocated with no exception). |
+| 13 | `c_overpayment` | An unexplained receipt that exceeds exactly one open invoice of the evidenced payer by a round top-up, when no combination of open documents explains it exactly → `OVERPAYMENT`. |
 
 `all_categories` finally labels every remaining line (`UNIDENTIFIED` gets its exception when the classifier gives it
 probability ≥ 0.20).
@@ -98,18 +99,19 @@ coordinating experiments.
 
 ## Results (LIVE, not FINAL)
 
-Official LIVE submission `s_e276ec5817e5ab08ee2d` (commit `f1e6ec7`):
+Official LIVE submission `s_95f171c55475e5088ca0` (DC7+C, `main` commit `c1e5dff`):
 
 | Metric | Value |
 |---|---|
-| Score | **93.80** (4th of 17 at submission time) |
-| Allocation F1 | 0.9374 (precision 0.9885, recall 0.8913) |
-| Transaction accuracy | 0.9563 |
-| Exception macro-F1 | 0.9119 |
+| Score | **93.98** (6th of 17 at submission time; previous DC7 candidate 93.80) |
+| Allocation F1 | 0.9372 (precision 0.9883, recall 0.8912) |
+| Transaction accuracy | 0.9565 |
+| Exception macro-F1 | 0.9209 |
 | Bank lines processed | 203,083 (all covered) |
-| Runtime / peak memory | ~187 s / ~6.8 GB (local Mac run) |
+| Runtime / peak memory | ~181 s / ~23 GB (local Mac run) |
 
-Clean, time-separated TRAIN validation: 2025-H1 94.18, 2024-H2 93.89. FINAL scores are revealed after the event.
+The +0.18 over DC7 comes almost entirely from exception labelling (OVERPAYMENT, stricter DUPLICATE_PAYMENT); allocation is unchanged.
+Clean, time-separated TRAIN validation of DC7 (before `c_overpayment`): 2025-H1 94.18, 2024-H2 93.89. FINAL scores are revealed after the event.
 
 ## Reproducibility
 
