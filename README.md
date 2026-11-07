@@ -42,15 +42,25 @@ python -m bankrec.pipeline --phase live --out ../out/live.csv.gz
 `src/bankrec/score.py` da **el mismo número** que el evaluador oficial (`data/starter/bankrec_score.py`). Comprobado en `sample`:
 35,84 con los dos.
 
-**Baseline actual** (módulos deterministas: remesas DD, tarjetas, cheques, payment runs y devoluciones):
+**Baseline actual.** Orden de módulos: deterministas (remesas DD y devoluciones, tarjetas y contracargos, cheques y devueltos,
+payment runs y transferencias devueltas) → `strong_categories` → `ap_direct_debits` y `supplier_refunds` → *[remittance, ar_text]* →
+`all_categories`:
 
 | Conjunto | Score | F1 (P / R) | TxnAcc | ExcF1 |
 |---|---|---|---|---|
-| sample (1 mes) | 35,84 | 0,48 (0,999 / 0,32) | 0,30 | 0,13 |
-| TRAIN 2025-01..06 | 42,39 | 0,54 (0,999 / 0,37) | 0,40 | 0,17 |
+| sample (1 mes), solo deterministas | 35,84 | 0,48 (0,999 / 0,32) | 0,30 | 0,13 |
+| TRAIN 2025-01..06, solo deterministas | 41,67 | 0,54 (0,999 / 0,37) | 0,38 | 0,17 |
+| TRAIN 2025-01..06, + categorías + AP DD/refunds | 44,00 | 0,55 (0,999 / 0,38) | 0,44 | 0,17 |
+| + cuentas fuera del maestro (IT01-VALD-EUR-2) + confirming por vencimiento mín./máx. | **44,55** | 0,555 (0,999 / 0,38) | 0,45 | 0,17 |
 
-La precisión ya es casi 1. **El hueco es el recall**: unas 140k de las 203k líneas de LIVE caen en el `fallback`. Todo el lado AR
-(transferencias con el nombre truncado, 1:N, parciales, descuentos, remittances) y las categorías no-item están por hacer.
+Por módulo (TRAIN 2025-H1): `payment_run` 53k líneas, 99,6 % de acierto · `cat_strong` 14k, 100 % · `ap_direct_debit` 4,9k, 100 % ·
+`supplier_refund` 2,3k, 99,96 % · DD/tarjetas/cheques entre el 96 % y el 100 %.
+
+**El hueco es el lado AR**: unas 117k líneas caen en `cat_rest`, cobros sin resolver que acaban en UNIDENTIFIED (acierto del 4 %).
+Están por hacer ar_ref_noise, 1:1, 1:N, FIFO/mes, descuentos, parciales y remittances.
+
+El modelo de categorías se entrena con `cd src && python -m bankrec.categories --train` (TRAIN hasta 2024-12, para medir en 2025-H1)
+o con `--all` (todo TRAIN, para LIVE/FINAL). Tarda unos 4 min y se guarda en `models/categories.joblib`.
 
 ## Cómo añadir un módulo
 

@@ -27,7 +27,15 @@ def _f(c: str) -> pl.Expr:
 
 
 def _acc_entity(ctx: Ctx) -> pl.DataFrame:
-    return ctx.accounts.select("account_id", pl.col("entity").alias("acc_entity"))
+    """account_id -> entity. Not every account is in the master (e.g. IT01-VALD-EUR-2): the entity is the id prefix."""
+    ids = [ctx.bank.select("account_id"), ctx.accounts.select("account_id")]
+    for df, col in ((ctx.payruns, "debtor_account_id"), (ctx.dd, "account_id"), (ctx.cards, "account_id"), (ctx.cheques, "account_id")):
+        if df is not None:
+            ids.append(df.select(pl.col(col).alias("account_id")))
+    if "acc_entity" not in ctx.__dict__.get("_cache", {}):
+        ctx.__dict__.setdefault("_cache", {})["acc_entity"] = pl.concat(ids).unique().with_columns(
+            pl.col("account_id").str.slice(0, 4).alias("acc_entity"))
+    return ctx.__dict__["_cache"]["acc_entity"]
 
 
 def _tokens(bank: pl.DataFrame, pattern: str, name: str = "tok") -> pl.DataFrame:
@@ -256,11 +264,19 @@ def payment_runs(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     if conf.height:
         due = _pr_rows_to_items(ctx, pr.filter(pl.col("run_type") == "confirming")).join(
             ctx.items.select("item_id", "due_date"), on="item_id", how="left")
-        e2e_due = due.group_by("acc", "run_id", "end_to_end_id").agg(pl.col("due_date").max(), pl.col("tamt").first())
-        by_day = e2e_due.group_by("acc", "run_id", "due_date").agg(pl.col("tamt").sum().round(2).alias("dtot"),
-                                                                    pl.col("end_to_end_id").alias("e2e_list"), pl.len().alias("nb"))
-        c = conf.join(by_day, on=["acc", "run_id"]).filter((pl.col("dtot") - pl.col("cmp_amt")).abs() < 0.015).with_columns(
-            (pl.col("booking_date").str.to_date() - pl.col("due_date").str.to_date()).dt.total_days().abs().alias("lag"))
+        e2e_due = due.group_by("acc", "run_id", "end_to_end_id").agg(
+            pl.col("due_date").max().alias("dmax"), pl.col("due_date").min().alias("dmin"), pl.col("tamt").first())
+        groups = []
+        for key in ("dmax", "dmin"):
+            groups.append(e2e_due.group_by("acc", "run_id", pl.col(key).alias("due_date")).agg(
+                pl.col("tamt").sum().round(2).alias("dtot"), pl.col("end_to_end_id").alias("e2e_list"), pl.len().alias("nb")))
+        # single beneficiary maturing alone ("1 PROVEEDORES")
+        groups.append(e2e_due.select("acc", "run_id", pl.col("dmax").alias("due_date"), pl.col("tamt").round(2).alias("dtot"),
+                                     pl.concat_list([pl.col("end_to_end_id")]).alias("e2e_list"), pl.lit(1, pl.UInt32).alias("nb")))
+        by_day = pl.concat(groups)
+        c = conf.join(by_day, on=["acc", "run_id"]).filter(
+            ((pl.col("dtot") - pl.col("cmp_amt")).abs() < 0.015) & (pl.col("n_benef").is_null() | (pl.col("n_benef") == pl.col("nb")))
+        ).with_columns((pl.col("booking_date").str.to_date() - pl.col("due_date").str.to_date()).dt.total_days().abs().fill_null(999).alias("lag"))
         c = c.sort("lag").unique("bank_txn_id", keep="first")
         links.append(c.explode("e2e_list").select("bank_txn_id", "acc", pl.col("e2e_list").alias("end_to_end_id")))
     link = pl.concat(links).unique(K)
