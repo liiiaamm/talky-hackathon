@@ -1,100 +1,163 @@
-# talky-hackathon · Close the Books
+# Token Co. | Intelligent Bank Reconciliation
 
-Conciliación bancaria a escala (Grupo Valtermia, sintético). Para cada línea bancaria: qué partidas abiertas liquida y por qué
-importe, o qué es (comisión, nómina, cash pool…), con su excepción (PARTIAL, SHORT_DISCOUNT, FX_DIFFERENCE…).
+Talky × Anthropic "Close the Books" hackathon. Every bank movement of a multi-entity group (17 legal entities in LIVE, a new
+South African subsidiary in FINAL) must be matched to the invoices it settles, or explained with a category, and every
+difference must carry the right accounting exception.
 
-Score = 100 × (0,5·F1 de asignaciones + 0,3·accuracy por línea + 0,2·macro-F1 de excepciones).
-Contexto y estrategia en [PLAN.md](PLAN.md) y [EDA.md](EDA.md). Las reglas de etiquetado están en [data/POLICIES.md](data/POLICIES.md)
-y el formato de entrega en [data/FORMAT.md](data/FORMAT.md).
+Our pipeline reads half a year of bank statements, invoices, credit notes, payment files, remittance advices and invoice PDFs,
+and writes one row per allocation: `bank_txn_id, item_id, amount, category, exception`. It is precision-first: a resolver
+claims a bank line only when its evidence gives exactly one answer; otherwise it abstains and leaves the line to a later stage.
 
-## Setup (una vez)
+## Our approach
+
+A **hybrid of deterministic accounting rules and two small ML models**, arranged as a priority cascade:
+
+1. **Exact structural joins** first: direct-debit batches, card settlements, cheque deposits, AP payment runs and their returns.
+2. **Document evidence** next: remittance advices (what the customer says it paid) and clauses printed on invoice PDFs
+   (instalments, retentions, advances, cancel-and-replace).
+3. **Customer matching**: identify the payer from name, IBAN or cited document numbers, then find the invoice or invoice set
+   whose open amounts explain the cash, including discounts, FX and bank charges.
+4. **Harder cases** last: unreferenced partial payments (learned ranker), unique exact subsets of recently due invoices,
+   repeated payments.
+5. **Everything else** is categorised (fees, payroll, cash pool, unidentified receipts) by a text classifier.
+
+A **shared allocation ledger** sits underneath: after every stage the accepted allocations are replayed in bank-date order
+against the opening balances, so each later stage sees what is really still open.
+
+## System architecture
+
+```mermaid
+flowchart LR
+  subgraph Inputs
+    B[Bank statements<br/>camt.053 / N43 / MT940]
+    I[AR/AP invoices,<br/>credit notes, opening items]
+    P[Payment runs, DD batches,<br/>cards, cheques]
+    R[Remittance advices<br/>csv / txt / pdf / xlsx]
+    D[Invoice PDFs]
+    M[Masters: customers,<br/>suppliers, accounts, FX]
+  end
+  B & I & P & M --> L[Load & normalise<br/>polars, parquet]
+  R --> RP[remittance_parse] --> L
+  D --> PC[pdf_clauses parser] --> L
+  L --> DET[Deterministic joins<br/>DD, cards, cheques, payment runs]
+  DET --> SC[Strong categories<br/>TF-IDF + LogReg]
+  SC --> C12[12 ordered resolvers]
+  C12 --> AC[all_categories<br/>+ UNIDENTIFIED]
+  LED[(Shared ledger<br/>open balances)] <--> DET & C12
+  AC --> O[CSV output] --> V[Official format validation<br/>+ coverage checks]
+```
+
+- **Ingestion** (`src/bankrec/data.py`, `eda/00_to_parquet.py`): CSV to parquet; FINAL reads updated masters from `final/masters_final/`.
+- **Document parsing**: `src/bankrec/remittance_parse.py` turns advices into (document, gross, paid) lines;
+  `src/bankrec/pdf_clauses.py` extracts clauses from invoice PDFs of the current and earlier phases (an invoice still open
+  keeps the clause of the PDF it was issued with).
+- **Orchestration** (`src/bankrec/pipeline.py`): resolvers run in a fixed order on the still-pending lines; a claimed line
+  leaves the pending set, so a later resolver can never override an earlier allocation. A resolver that crashes stops the
+  run (no silent skip) unless `--safe` is given.
+- **Shared ledger** (`pipeline.py`, `apply_ledger`): replays accepted allocations against opening balances; fully clearing
+  exceptions consume the full open amount; RETURNED lines can reopen items.
+- **Validation**: the pipeline validates the output format before writing; `tools/official_check.py` runs the official
+  scorer's validator and checks bank-line coverage and over-allocation.
+
+## Twelve-stage reconciliation pipeline
+
+After the deterministic joins and strong categories, twelve resolvers run in this order (`tools/final_config.sh`):
+
+| # | Resolver | What it does |
+|---|---|---|
+| 1 | `remittance` | Allocates a receipt to the invoices listed in its remittance advice, attributing discounts and withholdings. |
+| 2 | `pdf_clauses` | Matches instalments, retentions, advances and replaced invoices using the terms printed on the invoice PDF. |
+| 3 | `c_bank_charges_early` | Cross-border receipt short by an intermediary fee (≤ 60 EUR eq. and ≤ 2 %) → `SHORT_BANK_CHARGES`. |
+| 4 | `ar_text` | Main customer matcher: payer from name / IBAN / cited documents, then exact invoices, subsets and value modes (discount, overpayment, duplicate). Never uses an invoice issued after the payment. |
+| 5 | `ar_exact` | Exact- and adjusted-amount matches with customer evidence. |
+| 6 | `ar_multi` | Multi-invoice bundles from cited document numbers, with credit-note netting. |
+| 7 | `c_partial` | Learned ranker chooses the invoice of an unreferenced partial payment (`PARTIAL`). |
+| 8 | `c_discount` | Early-payment discount receipts (`SHORT_DISCOUNT`). |
+| 9 | `c_bank_charges` | Late pass for bank-charge shortfalls. |
+| 10 | `c_fx` | Receipts in another currency than the invoice (`FX_DIFFERENCE`). |
+| 11 | `ar_due_subset` | Last resort: the unique exact subset of the payer's recently due invoices. |
+| 12 | `c_duplicates` | A line repeating an item that is already settled → `DUPLICATE_PAYMENT`. |
+
+`all_categories` finally labels every remaining line (`UNIDENTIFIED` gets its exception when the classifier gives it
+probability ≥ 0.20).
+
+## Machine learning
+
+| Model | Where | Algorithm (verified in source) | Predicts |
+|---|---|---|---|
+| Category classifier | `src/bankrec/categories.py` | scikit-learn `TfidfVectorizer` (character 2-4-grams) + `LogisticRegression` | Category of a bank line (or ITEM) with probabilities |
+| Partial-payment ranker | `src/bankrec/c_partial.py` | LightGBM `LGBMClassifier` | Which open invoice an unreferenced partial payment belongs to |
+
+Both are trained offline on TRAIN labels only (features use history strictly before each line) and loaded at inference from
+pinned `.joblib` files, checked by SHA-256. Everything else is deterministic rules and bounded search (Aho-Corasick name and
+document matching, exact subset sums).
+
+**No LLM runs at inference.** Claude Code was our development tool: writing and reviewing code, running read-only audits and
+coordinating experiments. The submitted pipeline makes no model API calls.
+
+## Results (LIVE, not FINAL)
+
+Official LIVE submission `s_e276ec5817e5ab08ee2d` (commit `f1e6ec7`):
+
+| Metric | Value |
+|---|---|
+| Score | **93.80** (4th of 17 at submission time) |
+| Allocation F1 | 0.9374 (precision 0.9885, recall 0.8913) |
+| Transaction accuracy | 0.9563 |
+| Exception macro-F1 | 0.9119 |
+| Bank lines processed | 203,083 (all covered) |
+| Runtime / peak memory | ~187 s / ~6.8 GB (local Mac run) |
+
+Clean, time-separated TRAIN validation: 2025-H1 94.18, 2024-H2 93.89. FINAL scores are revealed after the event.
+
+## Reproducibility
+
+Data and model binaries are **not** in the repository (competition data is downloaded from the hackathon site; models are
+trained locally). See `docs/DEVELOPMENT_ES.md` for data download and parquet conversion.
 
 ```bash
-git clone https://github.com/liiiaamm/talky-hackathon.git && cd talky-hackathon
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+python eda/00_to_parquet.py                                   # data/<phase>/*.csv.gz -> data/parquet/<phase>/
+(cd src && python -m bankrec.categories --train --all)        # category model (models/, not in git)
+(cd src && python -m bankrec.c_partial --train --to 2025-07-01)  # partial-payment model (models/c_partial_2025-07-01.joblib)
 
-# Datos (no van al repo). Se descargan de la web y se extraen dentro de data/
-mkdir -p data/_dl && cd data/_dl
-curl -LO https://hackathon.usetalky.com/data/v1/bankrec-docs-and-masters.zip
-curl -LO https://hackathon.usetalky.com/data/v1/bankrec-train-lite.tar.gz
-curl -LO https://hackathon.usetalky.com/data/v1/bankrec-live.tar.gz
-cd .. && unzip -o _dl/bankrec-docs-and-masters.zip && tar xzf _dl/bankrec-train-lite.tar.gz && tar xzf _dl/bankrec-live.tar.gz
-cd ..
-# Debe quedar: data/masters, data/train, data/live, data/sample… (si el zip crea una subcarpeta, mueve su contenido a data/)
-
-python eda/00_to_parquet.py        # csv.gz -> data/parquet/{sample,train,live}  (unos minutos, una sola vez)
-cd src && python -m bankrec.categories --train --all && cd ..   # clasificador de categorías -> models/ (no va al repo)
+export PYTHON_BIN="$PWD/.venv/bin/python"
+export BANKREC_CAT_MODEL=/absolute/path/to/cat_all.joblib
+export BANKREC_PARTIAL_MODEL=/absolute/path/to/c_partial_2025-07-01.joblib
+bash tools/run_candidate.sh live out/live_candidate.csv.gz    # preflight, pipeline, official checks; never submits
 ```
 
-## Bucle de trabajo
+- `tools/final_config.sh` holds the exact configuration (resolver order, shared ledger, `PYTHONHASHSEED=0`, thresholds) and
+  the SHA-256 pins of the two models used for our LIVE submission. A freshly trained model will have a different hash and
+  `tools/preflight.py` will refuse it unless `BANKREC_ALLOW_UNPINNED_MODELS=1` is set deliberately.
+- FINAL: `bash tools/prepare_final.sh --skip-train` (download, extract, parse, preflight, pipeline). See `docs/FINAL_READINESS.md`.
 
-```bash
-cd src
-# Iterar rápido: 1 mes con golden (segundos)
-python -m bankrec.pipeline --phase sample --score
-# Medir de verdad: medio año de TRAIN (~1,5 min, desglose por segmento y por módulo)
-python -m bankrec.pipeline --phase train --from 2025-01-01 --to 2025-06-30 --score
-# Generar el fichero LIVE (unos 12 s, valida el formato)
-python -m bankrec.pipeline --phase live --out ../out/live.csv.gz
-```
+## Reliability and limitations
 
-`src/bankrec/score.py` da **el mismo número** que el evaluador oficial (`data/starter/bankrec_score.py`). Comprobado en `sample`:
-35,84 con los dos.
+**Safeguards implemented:** preflight checks (configuration drift, dependencies, every resolver loaded, model hashes, hash
+seed inherited at start-up), failure propagation in the runbook scripts, official format validation, bank-line coverage and
+over-allocation reports, a time-separated validation protocol with no future documents.
 
-**Baseline actual.** Orden de módulos: deterministas (remesas DD y devoluciones, tarjetas y contracargos, cheques y devueltos,
-payment runs y transferencias devueltas) → `strong_categories` → `ap_direct_debits` y `supplier_refunds` → *[remittance, ar_text]* →
-`all_categories`:
+**Robustness audit verdict: CONDITIONAL GO.** Controlled stress tests showed deterministic output (identical across repeated
+and row-shuffled runs on the sample phase), clean failure on missing columns, and correct behaviour for a new entity with a
+new currency and renamed customers. The condition is that FINAL inputs pass the data checks, because some failures are silent:
 
-| Conjunto | Score | F1 (P / R) | TxnAcc | ExcF1 |
-|---|---|---|---|---|
-| sample (1 mes), solo deterministas | 35,84 | 0,48 (0,999 / 0,32) | 0,30 | 0,13 |
-| TRAIN 2025-01..06, solo deterministas | 41,67 | 0,54 (0,999 / 0,37) | 0,38 | 0,17 |
-| TRAIN 2025-01..06, + categorías + AP DD/refunds | 44,00 | 0,55 (0,999 / 0,38) | 0,44 | 0,17 |
-| + cuentas fuera del maestro (IT01-VALD-EUR-2) + confirming por vencimiento mín./máx. | **44,55** | 0,555 (0,999 / 0,38) | 0,45 | 0,17 |
+- **Unfamiliar remittance layouts**: an advice the parser cannot read is skipped. Remittance-matched lines carry a large
+  share of the score (on 2024-H2, losing 10 % of them would cost about 1.4 points). FINAL introduces a new layout.
+- **Missing input tables** silently disable their resolvers (a missing payment-run file cost ~9.6 points on the sample phase).
+- **Hard cases remain hard**: many-to-many bundles (LIVE segment accuracy 0.28), late discounts (0.61), credit-note bundles
+  (0.67) and overpayments (0.75).
+- A small tie-breaking non-determinism in `ar_multi` can change a few lines between runs; expected score effect is negligible.
 
-Por módulo (TRAIN 2025-H1): `payment_run` 53k líneas, 99,6 % de acierto · `cat_strong` 14k, 100 % · `ap_direct_debit` 4,9k, 100 % ·
-`supplier_refund` 2,3k, 99,96 % · DD/tarjetas/cheques entre el 96 % y el 100 %.
+## Future improvements
 
-**El hueco es el lado AR**: unas 117k líneas caen en `cat_rest`, cobros sin resolver que acaban en UNIDENTIFIED (acierto del 4 %).
-Están por hacer ar_ref_noise, 1:1, 1:N, FIFO/mes, descuentos, parciales y remittances.
+- Layout-agnostic remittance reading (any document number confirmed by amount and party) instead of format-specific parsers.
+- Better many-to-many and partial-bundle matching with explicit ambiguity handling.
+- Stronger safeguards: reject double allocation of already settled items unless a duplicate is evidenced; date-aware ledger
+  balances for every resolver.
+- Operational monitoring: per-format parse coverage and per-resolver output alerts in the run report.
 
-El modelo de categorías se entrena con `cd src && python -m bankrec.categories --train` (TRAIN hasta 2024-12, para medir en 2025-H1)
-o con `--all` (todo TRAIN, para LIVE/FINAL). Tarda unos 4 min y se guarda en `models/categories.joblib`.
+## Team
 
-## Cómo añadir un módulo
-
-El pipeline ([src/bankrec/pipeline.py](src/bankrec/pipeline.py)) ejecuta *resolvers* en orden. **El primero que reclama una línea bancaria se la
-queda**, y las líneas que nadie reclama van al `fallback` (créditos → `UNIDENTIFIED`, cargos → `BANK_FEES`).
-
-1. Crea `src/bankrec/<tu_modulo>.py` con una o más funciones `f(ctx, pending) -> pl.DataFrame`:
-   - `ctx`: datos de la fase (`ctx.bank`, `ctx.items`, `ctx.customers`… ver [data.py](src/bankrec/data.py)).
-   - `pending`: las líneas bancarias que todavía no se ha quedado nadie.
-   - Devuelve filas `bank_txn_id, item_id, amount, category, exception, module`. Usa `deterministic.mk_rows(...)` para las filas de
-     partida.
-2. Expón `RESOLVERS = [f1, f2]` en tu módulo. `remittance` y `ar_text` ya se cargan solos si existen. Para un nombre nuevo, añádelo a
-   la lista `for _name in (...)` de `pipeline.py`.
-3. Reclama solo las líneas de las que estés seguro: precisión antes que recall. Una línea mal asignada te quita a ti el punto y
-   también se lo quita a cualquier módulo posterior que la habría resuelto bien.
-
-## Git
-
-- `main` siempre tiene que correr y validar. Trabaja en una rama (`feat/remittance`, `feat/ar-text`…) y abre un PR cuando tu módulo
-  suba el score de TRAIN 2025-01..06. Pon el antes y el después en la descripción del PR.
-- Nunca subas datos, modelos, `out/` ni el token. El `.gitignore` ya los excluye.
-
-## Envíos
-
-Solo los hace una persona (quien tenga el token del equipo):
-
-```bash
-read -rs HK_TOKEN && export HK_TOKEN          # nunca en código, .env ni historial
-python tools/submit.py LIVE out/live.csv.gz -m "qué ha cambiado"
-```
-
-- `tools/submit.py` hace comprobaciones locales **antes** de pedir la URL de subida, porque pedirla ya gasta un hueco. Después sube el
-  fichero, espera la nota y la apunta en `submissions/log.jsonl`. Haz commit de ese fichero.
-- Límites: un envío cada 180 s y 20 al día por fase. En LIVE cuenta el mejor. Enviamos a LIVE solo cuando TRAIN mejore más de unos
-  2 puntos.
-- **FINAL: un único envío puntuado por equipo**, oculto hasta las 20:30. El script exige `--i-am-sure`. Los datos de FINAL salen a las
-  18:00 y el envío cierra a las 19:30. Plan: enviar hacia las 18:45.
+**Token Co.**: Jack, Liam and Diego.
