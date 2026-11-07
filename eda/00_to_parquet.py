@@ -1,8 +1,13 @@
 """Convert the big csv.gz tables + batch/payment folders of each phase to parquet (all strings, typed later)."""
+import argparse
 import glob
 import os
 
 import duckdb
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--phase", action="append", choices=["sample", "train", "live", "final"], help="convert only this phase; repeat to select several")
+args = parser.parse_args()
 
 D = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 OUT = os.path.join(D, "parquet")
@@ -10,8 +15,10 @@ os.makedirs(OUT, exist_ok=True)
 con = duckdb.connect()
 con.execute("SET threads=12")
 
-for ph in ["sample", "train", "live", "final"]:
+for ph in args.phase or ["sample", "train", "live", "final"]:
     if not os.path.isdir(f"{D}/{ph}"):
+        if args.phase:
+            parser.error(f"phase directory does not exist: {D}/{ph}")
         continue
     os.makedirs(f"{OUT}/{ph}", exist_ok=True)
     for f in sorted(glob.glob(f"{D}/{ph}/*.csv.gz")):
