@@ -76,7 +76,7 @@ def _cascade(its: list, bdate: date, amt: int):
 
 def _claimed_cents(ctx: Ctx) -> dict:
     """item_id -> cents already allocated by earlier resolvers (only needed when the shared ledger is off)."""
-    if os.environ.get("BANKREC_LEDGER", "0") == "1":
+    if os.environ.get("BANKREC_LEDGER", "1") == "1":
         return {}
     prev = [r for r in ctx.__dict__.get("_claimed", []) if r.height]
     if not prev:
