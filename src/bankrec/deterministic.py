@@ -45,9 +45,9 @@ def _tokens(bank: pl.DataFrame, pattern: str, name: str = "tok") -> pl.DataFrame
 
 
 # --------------------------------------------------------------------------------------------- direct debits (AR)
-def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame) -> pl.DataFrame:
+def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame, items: pl.DataFrame | None = None) -> pl.DataFrame:
     """ddrows: rows of direct_debit_batches (+ entity). Adds item_id: exact doc number, else 'RECIBO <digits>' via mandate/customer + amount."""
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "total", "issue_date")
+    ari = (ctx.items if items is None else items).filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "total", "issue_date")
     ddrows = ddrows.with_row_index("_r").with_columns(norm_expr("remittance_info").alias("rnorm"), _f("amount").alias("dd_amt"))
     exact = ddrows.join(ari, left_on=["entity", "rnorm"], right_on=["entity", "docnorm"], how="inner").unique("_r")
     rest = ddrows.join(exact.select("_r"), on="_r", how="anti").with_columns(
@@ -58,8 +58,9 @@ def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame) -> pl.DataFrame:
         pl.col("docnorm").str.ends_with(pl.col("rdig")) & ((pl.col("total") - pl.col("dd_amt")).abs() < 0.01))
     by_mandate = cand.sort("issue_date").unique("_r", keep="first")
     rest2 = rest.join(by_mandate.select("_r"), on="_r", how="anti").drop("party_id")
-    cand2 = rest2.join(ari, on="entity", how="inner").filter(
-        pl.col("docnorm").str.ends_with(pl.col("rdig")) & ((pl.col("total") - pl.col("dd_amt")).abs() < 0.01))
+    cand2 = rest2.with_columns(pl.col("dd_amt").round(2).alias("_a")).join(
+        ari.with_columns(pl.col("total").round(2).alias("_a")), on=["entity", "_a"], how="inner").filter(
+        pl.col("docnorm").str.ends_with(pl.col("rdig")))
     by_suffix = cand2.sort("issue_date").unique("_r", keep="first")
     cols = ddrows.columns + ["item_id"]
     return pl.concat([exact.select(cols), by_mandate.select(cols), by_suffix.select(cols)])
@@ -73,7 +74,7 @@ def dd_batches(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         batches, left_on=["account_id", "tok"], right_on=["account_id", "batch_id"]).filter((pl.col("amt") - pl.col("btot")).abs() < 0.005)
     link = cand.unique("bank_txn_id", keep="first").unique("tok", keep="first").select("bank_txn_id", pl.col("tok").alias("batch_id"), "account_id")
     rows = ctx.dd.join(link, on=["batch_id", "account_id"]).join(_acc_entity(ctx), on="account_id").rename({"acc_entity": "entity"})
-    rows = _dd_rows_to_items(ctx, rows)
+    rows = _dd_rows_to_items(ctx, rows, ctx.all_items)   # exact doc numbers: open status irrelevant
     return mk_rows(rows, "dd_batch", amount="dd_amt")
 
 
@@ -85,12 +86,16 @@ def dd_returns(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     if deb.height == 0:
         return empty_rows()
     ddr = ctx.dd.join(_acc_entity(ctx), on="account_id").rename({"acc_entity": "entity"})
-    cand = deb.select("bank_txn_id", "mandate", "abs_amt", "booking_date", pl.col("account_id").alias("bacc")).join(
+    cand = deb.select("bank_txn_id", "mandate", "abs_amt", "booking_date",
+                      pl.col("alltext").alias("_return_text"), pl.col("account_id").alias("bacc")).join(
         ddr, left_on="mandate", right_on="mandate_id").filter(
         ((_f("amount") - pl.col("abs_amt")).abs() < 0.01) & (pl.col("collection_date") <= pl.col("booking_date")))
-    cand = cand.sort(["bank_txn_id", "collection_date"], descending=[False, True]).unique("bank_txn_id", keep="first")
+    # Monthly receipts often have identical amounts. An explicit original batch
+    # reference beats a newer unrelated collection on the same mandate.
+    cand = cand.with_columns(pl.col("_return_text").str.contains(pl.col("batch_id"), literal=True).alias("_batch_in"))
+    cand = cand.sort(["bank_txn_id", "_batch_in", "collection_date"], descending=[False, True, True]).unique("bank_txn_id", keep="first")
     cand = cand.with_columns(pl.col("mandate").alias("mandate_id"))
-    rows = _dd_rows_to_items(ctx, cand.drop("mandate"))
+    rows = _dd_rows_to_items(ctx, cand.drop("mandate"), ctx.all_items)
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "dd_return", "RETURNED")
 
 
@@ -108,7 +113,7 @@ def card_settlements(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     cand = cand.with_columns((pl.col("booking_date").str.to_date() - pl.col("settlement_date").str.to_date()).dt.total_days().alias("lag"))
     link = cand.sort("lag").unique("bank_txn_id", keep="first").unique("settlement_id", keep="first").select("bank_txn_id", "settlement_id")
     rows = ctx.cards.join(link, on="settlement_id").join(_acc_entity(ctx), on="account_id")
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
+    ari = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
     rows = rows.with_columns(norm_expr("order_number").alias("onorm")).join(
         ari, left_on=["acc_entity", "onorm"], right_on=["entity", "docnorm"]).unique(["bank_txn_id", "item_id"])
     return mk_rows(rows.with_columns(_f("gross").alias("amount")), "card_settlement")
@@ -133,15 +138,15 @@ def card_chargebacks(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     by_card = by_card.sort("operation_date", descending=True).unique("bank_txn_id", keep="first")
     cols = ["bank_txn_id", "abs_amt", "order_number", "acc_entity"]
     m = pl.concat([by_op.select(cols), by_card.select(cols)]).with_columns(norm_expr("order_number").alias("onorm"))
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
+    ari = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
     rows = m.join(ari, left_on=["acc_entity", "onorm"], right_on=["entity", "docnorm"]).unique("bank_txn_id")
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "card_chargeback", "RETURNED")
 
 
 # --------------------------------------------------------------------------------------------- cheques
-def _cheques_to_items(ctx: Ctx, cq: pl.DataFrame) -> pl.DataFrame:
+def _cheques_to_items(ctx: Ctx, cq: pl.DataFrame, items: pl.DataFrame | None = None) -> pl.DataFrame:
     """cq: cheque rows (+ acc_entity, bank_txn_id). Adds item_id via stub reference, else drawer name + amount."""
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "party_name", "total", "issue_date")
+    ari = (ctx.items if items is None else items).filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "party_name", "total", "issue_date")
     cq = cq.with_row_index("_r").with_columns(norm_expr("stub_reference").alias("snorm"), _f("amount").alias("cq_amt"),
                                               norm_expr("drawer").alias("dnorm"))
     exact = cq.filter(pl.col("snorm") != "").join(ari, left_on=["acc_entity", "snorm"], right_on=["entity", "docnorm"]).unique("_r")
@@ -181,7 +186,7 @@ def cheque_returns(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         cq, left_on=["chk", "bacc"], right_on=["cheque_number", "account_id"]).filter(
         ((_f("amount") - pl.col("abs_amt")).abs() < 0.01) & (pl.col("deposit_date") <= pl.col("booking_date")))
     cand = cand.sort("deposit_date", descending=True).unique("bank_txn_id", keep="first").with_columns(pl.col("chk").alias("cheque_number"))
-    rows = _cheques_to_items(ctx, cand.drop("chk"))
+    rows = _cheques_to_items(ctx, cand.drop("chk"), ctx.all_items)
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "cheque_return", "RETURNED")
 
 
@@ -191,7 +196,7 @@ PAYFACTORY = {"ES00": ["ES00", "ES01", "ES02", "PT01"]}
 
 def _pr_rows_to_items(ctx: Ctx, prr: pl.DataFrame) -> pl.DataFrame:
     """prr: payment_runs rows (+ debtor entity 'acc_entity'). Adds item_id, item currency, open amount."""
-    items = ctx.items.filter(pl.col("item_type").is_in(["API", "APC"])).select(
+    items = ctx.all_items.filter(pl.col("item_type").is_in(["API", "APC"])).select(
         "item_id", "item_type", "entity", "docnorm", "party_name", "currency", "open_amount", "total")
     prr = prr.with_row_index("_r").with_columns(
         norm_expr("document_number").alias("dnorm"),
@@ -211,6 +216,8 @@ def _pr_rows_to_items(ctx: Ctx, prr: pl.DataFrame) -> pl.DataFrame:
 
 def _pr_cumulative(ctx: Ctx, pr: pl.DataFrame) -> pl.DataFrame:
     """Cumulative amount paid per item through payment runs, in execution order -> (acc, end_to_end_id, item_id, cum_paid)."""
+    if ctx.date_from:   # cumulative within the phase/window, consistent with open_amount at its start
+        pr = pr.filter(pl.col("execution_date") >= ctx.date_from)
     m = _pr_rows_to_items(ctx, pr).sort(["execution_date", "end_to_end_id"])
     return m.with_columns(pl.col("doc_amt").cum_sum().over("item_id").alias("cum_paid")).select(
         "acc", "end_to_end_id", "item_id", "cum_paid").unique(["acc", "end_to_end_id", "item_id"])
@@ -237,12 +244,14 @@ def payment_runs(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         pl.col("alltext").str.extract(r"((?:PR|CF)\d{12}-\d{4})").alias("e2e"),
         pl.col("alltext").str.contains(r"(?:PR|CF)\d{12}-\d{4}D").alias("dup"),
         pl.col("alltext").str.extract(r"(\d+)\s+PROVEEDORES").cast(pl.Int32, strict=False).alias("n_benef"),
+        pl.col("alltext").str.extract(r"(\d+)\s+TRANSFERS\b").cast(pl.UInt32, strict=False).alias("n_transfers"),
     ).filter(pl.col("run_id").is_not_null())
     if deb.height == 0:
         return empty_rows()
     deb = deb.with_columns(
         pl.when(pl.col("orig_amt").is_not_null()).then(pl.col("orig_amt").abs()).otherwise(pl.col("abs_amt")).alias("cmp_amt"))
-    e2e = pr.group_by("acc", "run_id", "run_type", "end_to_end_id").agg(pl.col("tamt").first(), pl.col("execution_date").first())
+    e2e = pr.group_by("acc", "run_id", "run_type", "end_to_end_id").agg(
+        pl.col("tamt").first(), pl.col("execution_date").first(), pl.col("currency").first())
     K = ["bank_txn_id", "acc", "end_to_end_id"]
     # 1) full e2e in the bank text (transfers, all formats except N43 truncation)
     l1 = deb.filter(pl.col("e2e").is_not_null()).join(e2e.select("acc", "end_to_end_id", "tamt"), left_on=["acc", "e2e"],
@@ -251,11 +260,22 @@ def payment_runs(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     # 2) run id + amount == one transfer of the run (N43 truncated e2e)
     l2 = rest.join(e2e.filter(pl.col("run_type") == "transfers"), on=["acc", "run_id"]).filter(
         (pl.col("tamt") - pl.col("cmp_amt")).abs() < 0.015)
-    l2 = l2.sort("end_to_end_id").unique("bank_txn_id", keep="first").unique(["acc", "end_to_end_id"], keep="first").select(K)
+    l2 = l2.sort(["end_to_end_id", "booking_date", "bank_txn_id"]).unique(
+        "bank_txn_id", keep="first", maintain_order=True).unique(
+        ["acc", "end_to_end_id"], keep="first", maintain_order=True).select(K)
     rest = rest.join(l2, on="bank_txn_id", how="anti")
     # 3) aggregated: one debit for the whole run
-    run_tot = e2e.group_by("acc", "run_id").agg(pl.col("tamt").sum().round(2).alias("rtot"), pl.col("end_to_end_id").alias("e2es"))
-    l3 = rest.join(run_tot, on=["acc", "run_id"]).filter((pl.col("rtot") - pl.col("cmp_amt")).abs() < 0.015).explode("e2es").select(
+    run_tot = e2e.group_by("acc", "run_id").agg(
+        pl.col("tamt").sum().round(2).alias("rtot"), pl.col("end_to_end_id").alias("e2es"),
+        (pl.col("run_type") == "aggregated").all().alias("aggregated"), pl.len().alias("n_transfers_run"),
+        pl.col("currency").n_unique().alias("n_currencies"))
+    # A mixed-currency aggregate cannot be checked by adding transfer amounts in
+    # different currencies. Its explicit transfer count corroborates the full run id.
+    l3 = rest.with_columns(pl.len().over("acc", "run_id").alias("_n_run_debits")).join(run_tot, on=["acc", "run_id"]).filter(
+        ((pl.col("rtot") - pl.col("cmp_amt")).abs() < 0.015)
+        | (pl.col("aggregated") & (pl.col("n_currencies") > 1) & (pl.col("_n_run_debits") == 1)
+           & (pl.col("n_transfers") == pl.col("n_transfers_run")))
+    ).explode("e2es").select(
         "bank_txn_id", "acc", pl.col("e2es").alias("end_to_end_id"))
     rest = rest.join(l3, on="bank_txn_id", how="anti")
     # 4) confirming: one debit per maturity date = the beneficiaries (e2e) whose invoices fall due that day
@@ -263,26 +283,37 @@ def payment_runs(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     conf = rest.filter(pl.col("run_id").str.starts_with("CF"))
     if conf.height:
         due = _pr_rows_to_items(ctx, pr.filter(pl.col("run_type") == "confirming")).join(
-            ctx.items.select("item_id", "due_date"), on="item_id", how="left")
+            ctx.items.select("item_id", "due_date"), on="item_id", how="left").join(
+            ctx.all_items.select("item_id", pl.col("due_date").alias("all_due_date")), on="item_id", how="left")
         e2e_due = due.group_by("acc", "run_id", "end_to_end_id").agg(
-            pl.col("due_date").max().alias("dmax"), pl.col("due_date").min().alias("dmin"), pl.col("tamt").first())
+            pl.col("due_date").max().alias("dmax"), pl.col("due_date").min().alias("dmin"),
+            pl.col("all_due_date").max().alias("amax"), pl.col("all_due_date").min().alias("amin"), pl.col("tamt").first())
+        # Weekend maturities collect together on the next business day. Keep
+        # exact dates as candidates too; the debit amount/count resolves the group.
+        e2e_due = e2e_due.with_columns(*[
+            (pl.col(key).str.to_date() + pl.duration(days=
+                pl.when(pl.col(key).str.to_date().dt.weekday() == 6).then(2)
+                .when(pl.col(key).str.to_date().dt.weekday() == 7).then(1).otherwise(0)
+            )).dt.strftime("%Y-%m-%d").alias("b" + key[1:]) for key in ("amax", "amin")])
         groups = []
-        for key in ("dmax", "dmin"):
+        for key in ("dmax", "dmin", "amax", "amin", "bmax", "bmin"):
             groups.append(e2e_due.group_by("acc", "run_id", pl.col(key).alias("due_date")).agg(
-                pl.col("tamt").sum().round(2).alias("dtot"), pl.col("end_to_end_id").alias("e2e_list"), pl.len().alias("nb")))
+                pl.col("tamt").sum().round(2).alias("dtot"), pl.col("end_to_end_id").alias("e2e_list"), pl.len().alias("nb")).with_columns(
+                    pl.lit(0 if key.startswith("d") else 1).alias("_priority")))
         # single beneficiary maturing alone ("1 PROVEEDORES")
         groups.append(e2e_due.select("acc", "run_id", pl.col("dmax").alias("due_date"), pl.col("tamt").round(2).alias("dtot"),
-                                     pl.concat_list([pl.col("end_to_end_id")]).alias("e2e_list"), pl.lit(1, pl.UInt32).alias("nb")))
+                                     pl.concat_list([pl.col("end_to_end_id")]).alias("e2e_list"), pl.lit(1, pl.UInt32).alias("nb"),
+                                     pl.lit(0).alias("_priority")))
         by_day = pl.concat(groups)
         c = conf.join(by_day, on=["acc", "run_id"]).filter(
             ((pl.col("dtot") - pl.col("cmp_amt")).abs() < 0.015) & (pl.col("n_benef").is_null() | (pl.col("n_benef") == pl.col("nb")))
         ).with_columns((pl.col("booking_date").str.to_date() - pl.col("due_date").str.to_date()).dt.total_days().abs().fill_null(999).alias("lag"))
-        c = c.sort("lag").unique("bank_txn_id", keep="first")
+        c = c.sort(["_priority", "lag"]).unique("bank_txn_id", keep="first")
         links.append(c.explode("e2e_list").select("bank_txn_id", "acc", pl.col("e2e_list").alias("end_to_end_id")))
     link = pl.concat(links).unique(K)
     rows = pr.join(link, on=["acc", "end_to_end_id"]).join(
         deb.select("bank_txn_id", pl.col("currency").alias("bank_ccy"), "dup"), on="bank_txn_id")
-    rows = _pr_rows_to_items(ctx, rows).rename({"currency": "item_ccy"})
+    rows = _pr_rows_to_items(ctx, rows).rename({"currency_i": "item_ccy"})
     rows = rows.unique(["bank_txn_id", "item_id"])
     involved = pr.join(rows.select(pl.col("dnorm").alias("_d")).unique(), left_on=norm_expr("document_number"), right_on="_d", how="semi")
     rows = rows.join(_pr_cumulative(ctx, involved), on=["acc", "end_to_end_id", "item_id"], how="left")
@@ -290,16 +321,34 @@ def payment_runs(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
 
 
 def payment_returns(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
-    """Our transfer to a supplier came back: credit line citing the full e2e id."""
+    """A returned supplier transfer, identified by e2e or a unique structured transfer."""
     if ctx.payruns is None:
         return empty_rows()
-    cr = pending.filter(pl.col("is_credit")).with_columns(pl.col("alltext").str.extract(r"((?:PR|CF)\d{12}-\d{4})").alias("e2e")).filter(
-        pl.col("e2e").is_not_null())
-    if cr.height == 0:
-        return empty_rows()
+    cr = pending.filter(pl.col("is_credit")).drop("end_to_end_id").with_columns(
+        pl.col("alltext").str.extract(r"((?:PR|CF)\d{12}-\d{4})").alias("e2e"))
     pr = ctx.payruns.join(_acc_entity(ctx), left_on="debtor_account_id", right_on="account_id")
-    rows = pr.join(cr.select("bank_txn_id", pl.col("e2e").alias("end_to_end_id"), pl.col("account_id").alias("debtor_account_id")),
-                   on=["end_to_end_id", "debtor_account_id"])
+    links = cr.filter(pl.col("e2e").is_not_null()).select(
+        "bank_txn_id", pl.col("e2e").alias("end_to_end_id"), pl.col("account_id").alias("debtor_account_id"))
+    # Norma 43 may omit the original e2e completely. Only claim an explicit
+    # returned-transfer narrative when account, amount and named beneficiary
+    # identify exactly one earlier transfer in the structured run files.
+    rest = cr.filter(pl.col("e2e").is_null() & pl.col("alltext").str.contains("DEVOLUCION TRANSFERENCIA")).with_columns(
+        norm_expr(pl.col("alltext").str.normalize("NFKD")).alias("tnorm"),
+        pl.col("abs_amt").round(2).alias("amt2"))
+    if rest.height:
+        transfers = pr.group_by("debtor_account_id", "end_to_end_id").agg(
+            _f("transfer_amount").first().round(2).alias("amt2"), pl.col("execution_date").first(),
+            pl.col("currency").first().alias("transfer_ccy"),
+            norm_expr(pl.col("beneficiary").str.normalize("NFKD")).first().str.slice(0, 10).alias("bn10"))
+        candidates = rest.join(transfers, left_on=["account_id", "amt2"], right_on=["debtor_account_id", "amt2"]).filter(
+            (pl.col("execution_date") <= pl.col("booking_date"))
+            & (pl.col("currency") == pl.col("transfer_ccy"))
+            & (pl.col("bn10").str.len_chars() >= 5)
+            & pl.col("tnorm").str.contains(pl.col("bn10"), literal=True))
+        candidates = candidates.with_columns(pl.col("end_to_end_id").n_unique().over("bank_txn_id").alias("n_candidates")).filter(
+            pl.col("n_candidates") == 1)
+        links = pl.concat([links, candidates.select("bank_txn_id", "end_to_end_id", pl.col("account_id").alias("debtor_account_id"))])
+    rows = pr.join(links, on=["end_to_end_id", "debtor_account_id"])
     rows = _pr_rows_to_items(ctx, rows).unique(["bank_txn_id", "item_id"])
     return mk_rows(rows.with_columns(pl.col("doc_amt").alias("amount")), "payment_return", "RETURNED")
 
@@ -310,10 +359,10 @@ def _party_amount_match(ctx: Ctx, lines: pl.DataFrame, items: pl.DataFrame, modu
     if lines.height == 0 or items.height == 0:
         return empty_rows()
     lines = lines.join(_acc_entity(ctx), on="account_id").with_columns(
-        norm_expr("alltext").alias("tnorm"), pl.col("abs_amt").round(2).alias("amt2"),
+        norm_expr(pl.col("alltext").str.normalize("NFKD")).alias("tnorm"), pl.col("abs_amt").round(2).alias("amt2"),
         pl.when(pl.col("acc_entity") == "ES00").then(pl.lit(PAYFACTORY["ES00"])).otherwise(pl.concat_list([pl.col("acc_entity")])).alias("ents")
     ).explode("ents")
-    items = items.with_columns(pl.col("open_amount").round(2).alias("amt2"), norm_expr("party_name").str.slice(0, 10).alias("pn10"))
+    items = items.with_columns(pl.col("open_amount").round(2).alias("amt2"), norm_expr(pl.col("party_name").str.normalize("NFKD")).str.slice(0, 10).alias("pn10"))
     c = lines.select("bank_txn_id", "booking_date", "tnorm", "amt2", "ents").join(items, left_on=["ents", "amt2"], right_on=["entity", "amt2"])
     c = c.with_columns(
         ((pl.col("docnorm").str.len_chars() >= 4) & pl.col("tnorm").str.contains(pl.col("docnorm"), literal=True)).alias("doc_in"),
@@ -336,5 +385,25 @@ def supplier_refunds(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return _party_amount_match(ctx, pending.filter(pl.col("is_credit")), items, "supplier_refund")
 
 
-ALL = [dd_batches, dd_returns, card_settlements, card_chargebacks, cheque_deposits, cheque_returns, payment_runs, payment_returns]
+def credit_note_payouts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    """An outgoing transfer quoting an AR credit note clears that note (POLICIES §5.9)."""
+    notes = ctx.items.filter(pl.col("item_type") == "ARC").select(
+        "item_id", "entity", "docnorm", "open_amount", "issue_date")
+    if notes.height == 0:
+        return empty_rows()
+    lines = pending.filter(~pl.col("is_credit")).join(_acc_entity(ctx), on="account_id").with_columns(
+        norm_expr("alltext").alias("tnorm"), pl.col("abs_amt").round(2).alias("amt2"))
+    candidates = lines.join(notes.with_columns(pl.col("open_amount").round(2).alias("amt2")),
+                            left_on=["acc_entity", "amt2"], right_on=["entity", "amt2"]).filter(
+        (pl.col("issue_date") <= pl.col("booking_date"))
+        & (pl.col("docnorm").str.len_chars() >= 4)
+        & pl.col("tnorm").str.contains(pl.col("docnorm"), literal=True))
+    # A quoted document must identify a single note; do not break ties by row order.
+    candidates = candidates.with_columns(pl.col("item_id").n_unique().over("bank_txn_id").alias("n_candidates")).filter(
+        pl.col("n_candidates") == 1).unique(["bank_txn_id", "item_id"])
+    return mk_rows(candidates.with_columns(pl.col("open_amount").alias("amount")), "credit_note_payout")
+
+
+ALL = [dd_batches, dd_returns, card_settlements, card_chargebacks, cheque_deposits, cheque_returns, payment_runs, payment_returns,
+       credit_note_payouts]
 LATE_AP = [ap_direct_debits, supplier_refunds]   # run after strong categories (leasing/insurance DDs look alike)
