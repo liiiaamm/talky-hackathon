@@ -13,6 +13,11 @@ export BANKREC_CAT_MODEL="${BANKREC_CAT_MODEL:-$PWD/out/final_categories.joblib}
 # Relative model paths must keep their meaning when the pipeline runs from src/.
 BANKREC_CAT_MODEL="$("$PY" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$BANKREC_CAT_MODEL")"
 export BANKREC_CAT_MODEL
+# Validated INT6 configuration (PYTHONHASHSEED=0, ledger, order, pinned model hashes), exported before any later Python
+# starts so every step inherits it. The pins expect the LIVE category model: run with --skip-train and
+# BANKREC_CAT_MODEL=/abs/path/cat_all.joblib (a freshly trained model fails preflight unless BANKREC_ALLOW_UNPINNED_MODELS=1).
+# shellcheck source=tools/final_config.sh
+source tools/final_config.sh
 skip_download=0
 skip_train=0
 sha256=""
@@ -25,6 +30,10 @@ for arg in "$@"; do
         *) if [[ -n "$sha256" ]]; then echo "Only one SHA256 is accepted" >&2; exit 2; fi; sha256="$arg" ;;
     esac
 done
+if [[ "$skip_train" == 0 && "${BANKREC_ALLOW_UNPINNED_MODELS:-}" != 1 ]]; then
+    echo "The validated configuration pins cat_all.joblib: re-run with --skip-train and BANKREC_CAT_MODEL=/abs/path/cat_all.joblib" >&2
+    echo "(or set BANKREC_ALLOW_UNPINNED_MODELS=1 for an approved retrain)" >&2; exit 2
+fi
 mkdir -p data/_dl out
 T0=$SECONDS
 step() { echo "== [$(date +%H:%M:%S) +$((SECONDS - T0))s] $*"; }
@@ -34,16 +43,16 @@ if [[ "$skip_download" == 0 ]]; then
         echo "data/final contains symlinks (rehearsal mount?): move it away before extracting FINAL" >&2; exit 1
     fi
     tgz=data/_dl/bankrec-final.tar.gz
-    if [[ -n "$sha256" && -f "$tgz" ]] && echo "$sha256  $tgz" | sha256sum -c --status; then
+    if [[ -n "$sha256" && -f "$tgz" ]] && echo "$sha256  $tgz" | shasum -a 256 -c --status; then
         step "download skipped: $tgz already matches the SHA256"
     else
         step "download"
         curl -sSfL --retry 3 --retry-delay 5 -C - -o "$tgz" https://hackathon.usetalky.com/data/v1/bankrec-final.tar.gz
     fi
     if [[ -n "$sha256" ]]; then
-        echo "$sha256  data/_dl/bankrec-final.tar.gz" | sha256sum -c
+        echo "$sha256  data/_dl/bankrec-final.tar.gz" | shasum -a 256 -c
     else
-        sha256sum data/_dl/bankrec-final.tar.gz
+        shasum -a 256 data/_dl/bankrec-final.tar.gz
     fi
     step "extract"
     tar -tzf data/_dl/bankrec-final.tar.gz 2>/dev/null | grep -v '/\._\|^\._' | awk -F/ '{print $1}' | sort | uniq -c
@@ -56,7 +65,8 @@ if [[ -z "${HEAVY_LOCK_HELD:-}" ]]; then
     mkdir -p "${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"
     exec 8>"${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"/run.lock
     step "waiting for the global lock ... holder: $(cat "${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"/holder 2>/dev/null || true)"
-    flock 8
+    # macOS has no flock(1): take the same flock(2) lock on the inherited fd with Python (held until the fd closes)
+    if command -v flock >/dev/null; then flock 8; else "$PY" -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)'; fi
     echo "$$ final-runbook $(date +%H:%M:%S) $PWD :: prepare_final.sh $*" > "${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"/holder
     trap ': > "${BANKREC_LOCK_DIR:-/tmp/bankrec_locks}"/holder' EXIT
     export HEAVY_LOCK_HELD=1
@@ -94,6 +104,8 @@ if os.path.isdir(os.path.join(DATA, 'final', 'remittance_advices')):
 parse_pdf_clauses('final', workers=workers)
 PY
 )
+step "preflight (configuration, dependencies, resolvers, pinned models, data, paths)"
+"$PY" tools/preflight.py final
 step "pipeline"
 # Never let a stale file look READY after a failed run. Emergency: BANKREC_PIPELINE_ARGS="--safe --repair".
 rm -f out/final.csv.gz
@@ -142,5 +154,5 @@ with pl.Config(tbl_rows=60, tbl_hide_dataframe_shape=True):
     print('bank lines per entity:')
     print(bank['entity'].value_counts().sort('entity'))
 PY
-sha256sum out/final.csv.gz
+shasum -a 256 out/final.csv.gz
 step "READY: out/final.csv.gz (not submitted)"
