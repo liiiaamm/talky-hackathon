@@ -108,7 +108,7 @@ Official LIVE submission `s_95f171c55475e5088ca0` (DC7+C, `main` commit `c1e5dff
 | Transaction accuracy | 0.9565 |
 | Exception macro-F1 | 0.9209 |
 | Bank lines processed | 203,083 (all covered) |
-| Runtime / peak memory | ~181 s / ~23 GB (local Mac run) |
+| Runtime / peak memory | ~181 s / ~23.3 GB (local Mac run) |
 
 The +0.18 over DC7 comes almost entirely from exception labelling (OVERPAYMENT, stricter DUPLICATE_PAYMENT); allocation is unchanged.
 Clean, time-separated TRAIN validation of DC7 (before `c_overpayment`): 2025-H1 94.18, 2024-H2 93.89. FINAL scores are revealed after the event.
