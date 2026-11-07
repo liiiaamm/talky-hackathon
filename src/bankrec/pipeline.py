@@ -28,7 +28,7 @@ except ImportError:
     LATE = []
 MODULES.extend(det.LATE_AP)
 _SKIP = set(filter(None, __import__("os").environ.get("BANKREC_SKIP", "").split(",")))   # e.g. BANKREC_SKIP=ra_advices,remittance
-_ORDER = __import__("os").environ.get("BANKREC_ORDER", "remittance,pdf_clauses,ar_text,ar_exact,ar_multi,ar_due_subset").split(",")   # optional modules, in order
+_ORDER = __import__("os").environ.get("BANKREC_ORDER", "remittance,pdf_clauses,ar_text,ar_exact,ar_multi,c_partial,c_discount,c_bank_charges,c_fx,ar_due_subset").split(",")   # optional modules, in order
 for _name in _ORDER:       # teammates' modules: expose RESOLVERS = [f, ...]
     if _name in _SKIP:
         continue
@@ -48,7 +48,7 @@ def fallback(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         pl.lit("fallback").alias("module"))
 
 
-LEDGER = os.environ.get("BANKREC_LEDGER", "0") == "1"
+LEDGER = os.environ.get("BANKREC_LEDGER", "1") == "1"
 
 
 def apply_ledger(ctx: Ctx, rows: pl.DataFrame):

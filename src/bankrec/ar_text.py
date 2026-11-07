@@ -105,7 +105,7 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     items = _items(ctx, start)
     # abbreviated-citation anchors need balances that know what earlier resolvers settled: on only with the shared
     # ledger (BANKREC_LEDGER=1). Without it they cost precision (TRAIN 2025-H1 90.81 -> 90.68). Override in the cfg.
-    anchors = cfg.pop("weak_anchors", os.environ.get("BANKREC_LEDGER", "0") == "1")
+    anchors = cfg.pop("weak_anchors", os.environ.get("BANKREC_LEDGER", "1") == "1")
     cfg["weak_anchors"] = anchors
     store = ItemStore(items, suffix_tails=anchors)
     cu, su = ctx.customers.to_pandas().fillna(""), ctx.suppliers.to_pandas().fillna("")
