@@ -61,6 +61,23 @@ def _items_from_tables(phase: str) -> pl.DataFrame | None:
     return pl.concat(parts) if parts else None
 
 
+def _open_at(items: pl.DataFrame, date_from: str, date_to: str | None) -> pl.DataFrame:
+    """Dev windows on TRAIN behave like LIVE: open amount of every item at date_from, from the golden of earlier bank lines
+    (exactly what open_items_at_start gives in LIVE/FINAL). Items fully settled before the window are dropped."""
+    g = _pq("train", "golden_allocations").filter(pl.col("item_id").is_not_null())
+    bt = _pq("train", "bank_transactions").select("bank_txn_id", "booking_date").filter(pl.col("booking_date") < date_from)
+    paid = g.join(bt, on="bank_txn_id").with_columns(_f("amount").alias("a")).group_by("item_id").agg(
+        (pl.when(pl.col("exception") == "RETURNED").then(-pl.col("a")).otherwise(pl.col("a"))).sum().alias("paid"),
+        # these fully clear the item although less cash arrived
+        pl.col("exception").is_in(["SHORT_DISCOUNT", "SHORT_BANK_CHARGES", "SHORT_WITHHOLDING", "FX_DIFFERENCE", "OVERPAYMENT"]).any().alias("cleared"))
+    items = items.join(paid, on="item_id", how="left").with_columns(
+        pl.when(pl.col("cleared").fill_null(False)).then(0.0)
+        .otherwise((pl.col("total") - pl.col("paid").fill_null(0.0)).clip(lower_bound=0.0)).round(2).alias("open_amount"))
+    if date_to:
+        items = items.filter(pl.col("issue_date") <= date_to)
+    return items.filter(pl.col("open_amount") > 0.005).drop("paid", "cleared")
+
+
 def _read_master(name: str, phase: str) -> pl.DataFrame:
     p = os.path.join(DATA, phase, "masters_final", name) if phase == "final" else None
     if not (p and os.path.exists(p)):
@@ -84,6 +101,8 @@ class Ctx:
     fx: pl.DataFrame | None = None
     categories: list = field(default_factory=list)
     golden: pl.DataFrame | None = None
+    date_from: str | None = None
+    all_items: pl.DataFrame | None = None
 
 
 def load(phase: str, date_from: str | None = None, date_to: str | None = None) -> Ctx:
@@ -104,6 +123,11 @@ def load(phase: str, date_from: str | None = None, date_to: str | None = None) -
     # ---- items: everything settle-able in the phase
     if phase in ("train", "sample"):
         items = _items_from_tables(phase).with_columns(pl.col("total").alias("open_amount"))
+        all_items = items
+        if phase == "train" and date_from:
+            items = _open_at(items, date_from, date_to)
+            all_items = all_items.drop("open_amount").join(items.select("item_id", "open_amount"), on="item_id", how="left").with_columns(
+                pl.col("open_amount").fill_null(0.0))
     else:
         cur = _items_from_tables(phase)
         oi = _pq(phase, "open_items_at_start")
@@ -123,9 +147,12 @@ def load(phase: str, date_from: str | None = None, date_to: str | None = None) -
         else:
             raise RuntimeError("prior phase item tables are needed to enrich open items")
         items = pl.concat([carried, cur.with_columns(pl.col("total").alias("open_amount"))], how="diagonal_relaxed").unique("item_id", keep="last")
+        all_items = pl.concat([items, prior.with_columns(pl.lit(0.0).alias("open_amount"))], how="diagonal_relaxed").unique("item_id", keep="first")
     items = items.with_columns(norm_expr("docnum").alias("docnorm"))
+    all_items = all_items.with_columns(norm_expr("docnum").alias("docnorm"))
 
-    ctx = Ctx(phase=phase, bank=bank, items=items)
+    ctx = Ctx(phase=phase, bank=bank, items=items, date_from=date_from)
+    ctx.all_items = all_items   # every known item incl. settled ones (returns re-open paid items)
     ctx.dd = _pq(phase, "direct_debit_batches")
     ctx.cards = _pq(phase, "card_settlements")
     ctx.cheques = _pq(phase, "cheque_deposits")

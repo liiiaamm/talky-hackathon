@@ -19,7 +19,7 @@ import polars as pl
 
 from .data import ROOT, Ctx
 
-MODEL = os.path.join(ROOT, "models", "categories.joblib")
+MODEL = os.environ.get("BANKREC_CAT_MODEL", os.path.join(ROOT, "models", "categories.joblib"))
 STRONG = 0.97
 _cache = {}
 
@@ -82,10 +82,10 @@ def _predict(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         pl.Series("p_ni", P[np.arange(len(P)), best_ni]))
 
 
-def _rows(df: pl.DataFrame, cat: pl.Expr, module: str) -> pl.DataFrame:
+def _rows(df: pl.DataFrame, cat: pl.Expr, module: str, exc: pl.Expr | None = None) -> pl.DataFrame:
+    exc = pl.when(cat == "UNIDENTIFIED").then(pl.lit("UNIDENTIFIED")).otherwise(pl.lit("")) if exc is None else exc
     return df.select("bank_txn_id", pl.lit(None, pl.Utf8).alias("item_id"), pl.lit(None, pl.Float64).alias("amount"), cat.alias("category"),
-                     pl.when(cat == "UNIDENTIFIED").then(pl.lit("UNIDENTIFIED")).otherwise(pl.lit("")).alias("exception"),
-                     pl.lit(module).alias("module"))
+                     exc.alias("exception"), pl.lit(module).alias("module"))
 
 
 def strong_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
@@ -104,7 +104,11 @@ def all_categories(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     cat = (pl.when(~pl.col("pred").is_in(["ITEM"])).then(pl.col("pred"))
            .when(pl.col("is_credit")).then(pl.lit("UNIDENTIFIED"))
            .otherwise(pl.col("pred_ni")))
-    return _rows(pr, cat, "cat_rest")
+    # UNIDENTIFIED exception only when the model believes it (otherwise the line is a missed item anyway: an UNIDENTIFIED
+    # exception there is a false positive in the exception macro-F1)
+    exc = pl.when((cat == "UNIDENTIFIED") & ((pl.col("pred") == "UNIDENTIFIED") | (os.environ.get("BANKREC_UNID_ALL") == "1")))\
+        .then(pl.lit("UNIDENTIFIED")).otherwise(pl.lit(""))
+    return _rows(pr, cat, "cat_rest", exc)
 
 
 if __name__ == "__main__":

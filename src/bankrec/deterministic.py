@@ -45,9 +45,9 @@ def _tokens(bank: pl.DataFrame, pattern: str, name: str = "tok") -> pl.DataFrame
 
 
 # --------------------------------------------------------------------------------------------- direct debits (AR)
-def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame) -> pl.DataFrame:
+def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame, items: pl.DataFrame | None = None) -> pl.DataFrame:
     """ddrows: rows of direct_debit_batches (+ entity). Adds item_id: exact doc number, else 'RECIBO <digits>' via mandate/customer + amount."""
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "total", "issue_date")
+    ari = (ctx.items if items is None else items).filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "total", "issue_date")
     ddrows = ddrows.with_row_index("_r").with_columns(norm_expr("remittance_info").alias("rnorm"), _f("amount").alias("dd_amt"))
     exact = ddrows.join(ari, left_on=["entity", "rnorm"], right_on=["entity", "docnorm"], how="inner").unique("_r")
     rest = ddrows.join(exact.select("_r"), on="_r", how="anti").with_columns(
@@ -58,8 +58,9 @@ def _dd_rows_to_items(ctx: Ctx, ddrows: pl.DataFrame) -> pl.DataFrame:
         pl.col("docnorm").str.ends_with(pl.col("rdig")) & ((pl.col("total") - pl.col("dd_amt")).abs() < 0.01))
     by_mandate = cand.sort("issue_date").unique("_r", keep="first")
     rest2 = rest.join(by_mandate.select("_r"), on="_r", how="anti").drop("party_id")
-    cand2 = rest2.join(ari, on="entity", how="inner").filter(
-        pl.col("docnorm").str.ends_with(pl.col("rdig")) & ((pl.col("total") - pl.col("dd_amt")).abs() < 0.01))
+    cand2 = rest2.with_columns(pl.col("dd_amt").round(2).alias("_a")).join(
+        ari.with_columns(pl.col("total").round(2).alias("_a")), on=["entity", "_a"], how="inner").filter(
+        pl.col("docnorm").str.ends_with(pl.col("rdig")))
     by_suffix = cand2.sort("issue_date").unique("_r", keep="first")
     cols = ddrows.columns + ["item_id"]
     return pl.concat([exact.select(cols), by_mandate.select(cols), by_suffix.select(cols)])
@@ -73,7 +74,7 @@ def dd_batches(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         batches, left_on=["account_id", "tok"], right_on=["account_id", "batch_id"]).filter((pl.col("amt") - pl.col("btot")).abs() < 0.005)
     link = cand.unique("bank_txn_id", keep="first").unique("tok", keep="first").select("bank_txn_id", pl.col("tok").alias("batch_id"), "account_id")
     rows = ctx.dd.join(link, on=["batch_id", "account_id"]).join(_acc_entity(ctx), on="account_id").rename({"acc_entity": "entity"})
-    rows = _dd_rows_to_items(ctx, rows)
+    rows = _dd_rows_to_items(ctx, rows, ctx.all_items)   # exact doc numbers: open status irrelevant
     return mk_rows(rows, "dd_batch", amount="dd_amt")
 
 
@@ -90,7 +91,7 @@ def dd_returns(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         ((_f("amount") - pl.col("abs_amt")).abs() < 0.01) & (pl.col("collection_date") <= pl.col("booking_date")))
     cand = cand.sort(["bank_txn_id", "collection_date"], descending=[False, True]).unique("bank_txn_id", keep="first")
     cand = cand.with_columns(pl.col("mandate").alias("mandate_id"))
-    rows = _dd_rows_to_items(ctx, cand.drop("mandate"))
+    rows = _dd_rows_to_items(ctx, cand.drop("mandate"), ctx.all_items)
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "dd_return", "RETURNED")
 
 
@@ -108,7 +109,7 @@ def card_settlements(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     cand = cand.with_columns((pl.col("booking_date").str.to_date() - pl.col("settlement_date").str.to_date()).dt.total_days().alias("lag"))
     link = cand.sort("lag").unique("bank_txn_id", keep="first").unique("settlement_id", keep="first").select("bank_txn_id", "settlement_id")
     rows = ctx.cards.join(link, on="settlement_id").join(_acc_entity(ctx), on="account_id")
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
+    ari = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
     rows = rows.with_columns(norm_expr("order_number").alias("onorm")).join(
         ari, left_on=["acc_entity", "onorm"], right_on=["entity", "docnorm"]).unique(["bank_txn_id", "item_id"])
     return mk_rows(rows.with_columns(_f("gross").alias("amount")), "card_settlement")
@@ -133,15 +134,15 @@ def card_chargebacks(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     by_card = by_card.sort("operation_date", descending=True).unique("bank_txn_id", keep="first")
     cols = ["bank_txn_id", "abs_amt", "order_number", "acc_entity"]
     m = pl.concat([by_op.select(cols), by_card.select(cols)]).with_columns(norm_expr("order_number").alias("onorm"))
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
+    ari = ctx.all_items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm")
     rows = m.join(ari, left_on=["acc_entity", "onorm"], right_on=["entity", "docnorm"]).unique("bank_txn_id")
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "card_chargeback", "RETURNED")
 
 
 # --------------------------------------------------------------------------------------------- cheques
-def _cheques_to_items(ctx: Ctx, cq: pl.DataFrame) -> pl.DataFrame:
+def _cheques_to_items(ctx: Ctx, cq: pl.DataFrame, items: pl.DataFrame | None = None) -> pl.DataFrame:
     """cq: cheque rows (+ acc_entity, bank_txn_id). Adds item_id via stub reference, else drawer name + amount."""
-    ari = ctx.items.filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "party_name", "total", "issue_date")
+    ari = (ctx.items if items is None else items).filter(pl.col("item_type") == "ARI").select("item_id", "entity", "docnorm", "party_id", "party_name", "total", "issue_date")
     cq = cq.with_row_index("_r").with_columns(norm_expr("stub_reference").alias("snorm"), _f("amount").alias("cq_amt"),
                                               norm_expr("drawer").alias("dnorm"))
     exact = cq.filter(pl.col("snorm") != "").join(ari, left_on=["acc_entity", "snorm"], right_on=["entity", "docnorm"]).unique("_r")
@@ -181,7 +182,7 @@ def cheque_returns(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         cq, left_on=["chk", "bacc"], right_on=["cheque_number", "account_id"]).filter(
         ((_f("amount") - pl.col("abs_amt")).abs() < 0.01) & (pl.col("deposit_date") <= pl.col("booking_date")))
     cand = cand.sort("deposit_date", descending=True).unique("bank_txn_id", keep="first").with_columns(pl.col("chk").alias("cheque_number"))
-    rows = _cheques_to_items(ctx, cand.drop("chk"))
+    rows = _cheques_to_items(ctx, cand.drop("chk"), ctx.all_items)
     return mk_rows(rows.with_columns(pl.col("abs_amt").alias("amount")), "cheque_return", "RETURNED")
 
 
@@ -191,7 +192,7 @@ PAYFACTORY = {"ES00": ["ES00", "ES01", "ES02", "PT01"]}
 
 def _pr_rows_to_items(ctx: Ctx, prr: pl.DataFrame) -> pl.DataFrame:
     """prr: payment_runs rows (+ debtor entity 'acc_entity'). Adds item_id, item currency, open amount."""
-    items = ctx.items.filter(pl.col("item_type").is_in(["API", "APC"])).select(
+    items = ctx.all_items.filter(pl.col("item_type").is_in(["API", "APC"])).select(
         "item_id", "item_type", "entity", "docnorm", "party_name", "currency", "open_amount", "total")
     prr = prr.with_row_index("_r").with_columns(
         norm_expr("document_number").alias("dnorm"),
@@ -211,6 +212,8 @@ def _pr_rows_to_items(ctx: Ctx, prr: pl.DataFrame) -> pl.DataFrame:
 
 def _pr_cumulative(ctx: Ctx, pr: pl.DataFrame) -> pl.DataFrame:
     """Cumulative amount paid per item through payment runs, in execution order -> (acc, end_to_end_id, item_id, cum_paid)."""
+    if ctx.date_from:   # cumulative within the phase/window, consistent with open_amount at its start
+        pr = pr.filter(pl.col("execution_date") >= ctx.date_from)
     m = _pr_rows_to_items(ctx, pr).sort(["execution_date", "end_to_end_id"])
     return m.with_columns(pl.col("doc_amt").cum_sum().over("item_id").alias("cum_paid")).select(
         "acc", "end_to_end_id", "item_id", "cum_paid").unique(["acc", "end_to_end_id", "item_id"])

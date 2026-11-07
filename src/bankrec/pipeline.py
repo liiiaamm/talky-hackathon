@@ -24,7 +24,7 @@ try:  # optional modules from teammates / later stages
 except ImportError:
     LATE = []
 MODULES.extend(det.LATE_AP)
-for _name in ("remittance", "ar_text"):       # teammates' modules: expose RESOLVERS = [f, ...]
+for _name in ("remittance", "ar_exact", "ar_text"):       # teammates' modules: expose RESOLVERS = [f, ...]
     try:
         _m = __import__(f"bankrec.{_name}", fromlist=["RESOLVERS"])
         MODULES.extend(_m.RESOLVERS)
