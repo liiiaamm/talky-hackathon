@@ -300,6 +300,60 @@ def fx_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return out.select("bank_txn_id", "item_id", "amount", "category", "exception", "module")
 
 
+# ---------------------------------------------------------------------------------------------- SHORT_DISCOUNT (1:N)
+# POLICIES §3 SHORT_DISCOUNT: terms carry a discount %; cash = total − % × total (to the cent) when booking ≤ invoice date +
+# discount days + 3 days of grace (invoice fully cleared); after the deadline the discount is not accepted → PARTIAL at the
+# cash. ar_adjusted handles one discounted invoice per line; receipts that pay SEVERAL discounted invoices are not matched
+# by anyone. Same pattern as the FX pass: re-run the existing matchers on a view of the open items where every untouched
+# invoice with discount terms is valued at its discounted amount, then relabel per the policy.
+DISCOUNT_GRACE_DAYS = 3
+
+
+def discount_receipts(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
+    import copy
+    from .ar_exact import exact_amount
+    from .ar_multi import multi_invoice
+    lines = pending.filter(pl.col("is_credit") & pl.col("orig_amt").is_null())
+    if not lines.height:
+        return empty_rows()
+    terms = ctx.terms.select(pl.col("code").alias("payment_terms"),
+                             (pl.col("early_payment_discount_pct").cast(pl.Float64, strict=False) / 100).alias("dpct"),
+                             pl.col("discount_days").cast(pl.Int32, strict=False).alias("ddays")).filter(pl.col("dpct") > 0)
+    items = ctx.items.join(terms, on="payment_terms", how="left")
+    disc = (pl.col("item_type") == "ARI") & pl.col("dpct").is_not_null() & ((pl.col("open_amount") - pl.col("total")).abs() <= AMT_TOL)
+    if not items.filter(disc).height:
+        return empty_rows()
+    view = items.with_columns(
+        pl.when(disc).then((pl.col("total") * (1 - pl.col("dpct"))).round(2)).otherwise(pl.col("open_amount")).alias("open_amount"),
+        pl.col("open_amount").alias("open_full")).drop("dpct", "ddays")
+    ctx2 = copy.copy(ctx)
+    ctx2.items = view
+    rows, pend = [], lines
+    for f in (exact_amount, multi_invoice):
+        r = f(ctx2, pend)
+        if r.height:
+            rows.append(r)
+            pend = pend.join(r.select("bank_txn_id").unique(), on="bank_txn_id", how="anti")
+        if not pend.height:
+            break
+    if not rows:
+        return empty_rows()
+    out = (pl.concat(rows)
+           .join(view.select("item_id", "item_type", "open_full", "issue_date", "payment_terms", pl.col("open_amount").alias("open_disc")), on="item_id", how="left")
+           .join(terms, on="payment_terms", how="left")
+           .join(lines.select("bank_txn_id", "booking_date"), on="bank_txn_id", how="left"))
+    discounted = (pl.col("item_type") == "ARI") & pl.col("dpct").is_not_null() & ((pl.col("amount") - pl.col("open_disc")).abs() <= AMT_TOL) \
+        & ((pl.col("open_full") - pl.col("amount")).abs() > AMT_TOL)
+    in_terms = pl.col("booking_date").str.to_date() <= pl.col("issue_date").str.to_date().dt.offset_by(
+        pl.concat_str([(pl.col("ddays").fill_null(0) + DISCOUNT_GRACE_DAYS).cast(pl.Utf8), pl.lit("d")]))
+    out = out.with_columns(
+        pl.when(discounted & in_terms).then(pl.lit("SHORT_DISCOUNT")).when(discounted).then(pl.lit("PARTIAL"))
+          .otherwise(pl.col("exception").fill_null("")).alias("exception"),
+        pl.when(discounted & in_terms).then(pl.col("open_full")).otherwise(pl.col("amount")).alias("amount"),
+        pl.concat_str([pl.lit("c_disc_"), pl.col("module")]).alias("module"))
+    return out.select("bank_txn_id", "item_id", "amount", "category", "exception", "module")
+
+
 # Exposure (measured on feat/b-ar-hard, both TRAIN windows, see PR):
 #   bank_charges  -> c_bank_charges.py, placed AFTER ar_text/ar_exact/ar_multi: it only takes what ar_text's own
 #                    bank-charges rule leaves (SHORT_BANK_CHARGES F1 0.745 -> 0.823 / 0.743 -> 0.785). Placed before
