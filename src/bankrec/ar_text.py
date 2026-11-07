@@ -66,6 +66,9 @@ def _items(ctx: Ctx, window_start: str) -> pd.DataFrame:
         g = pd.read_parquet(gp, columns=["bank_txn_id", "item_id", "amount", "exception"])
         b = pd.read_parquet(bp, columns=["bank_txn_id", "booking_date"])
         it["open_cents"] = train_opening(it, g, b.set_index("bank_txn_id").booking_date, window_start)
+        # never above what the pipeline still has open (window opening, and earlier resolvers with BANKREC_LEDGER=1)
+        if os.environ.get("BANKREC_AR_TEXT_SEED", "1") == "1":
+            it["open_cents"] = np.minimum(it["open_cents"].to_numpy(), cents(it.open_amount))
     else:
         it["open_cents"] = cents(it.open_amount)
     it.loc[cancelled_mask(it), "open_cents"] = 0
