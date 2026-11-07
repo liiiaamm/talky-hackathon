@@ -67,9 +67,13 @@ def iso(d) -> str | None:
         return m.group(0)
     m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$", d)
     if m:
-        dd, mm, yy = m.groups()
-        yy = int(yy) + (2000 if len(yy) == 2 else 0)
-        return f"{yy:04d}-{int(mm):02d}-{int(dd):02d}"
+        dd, mm, yy = (int(x) for x in m.groups())
+        yy = yy + (2000 if yy < 100 else 0)
+        if mm > 12 and dd <= 12:   # US order (MM/DD/YYYY) in English advices
+            dd, mm = mm, dd
+        if not (1 <= mm <= 12 and 1 <= dd <= 31):
+            return None
+        return f"{yy:04d}-{mm:02d}-{dd:02d}"
     return None
 
 

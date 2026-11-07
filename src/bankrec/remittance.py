@@ -87,10 +87,16 @@ def explain_shortfall(short: float, total: float, reason: str, discount_pct: flo
     return "DISPUTE" if reason else "PARTIAL"
 
 
+PHASES_ALL = ("train", "live", "final")
+
+
 def _advices(ctx: Ctx) -> tuple[pl.DataFrame, pl.DataFrame] | None:
-    lines = load_lines(ctx.phase)
-    if lines is None or lines.height == 0:
+    """Parsed advices of EVERY phase folder available: an advice can arrive days after the cash, i.e. in the next phase's
+    folder (POLICIES §5.4), so a receipt at the end of TRAIN/LIVE may have its advice in live/ / final/."""
+    parts = [x for x in (load_lines(ph) for ph in PHASES_ALL) if x is not None and x.height]
+    if not parts:
         return None
+    lines = pl.concat(parts, how="vertical_relaxed").unique(["file", "doc", "gross", "paid"], keep="first")
     lines = lines.filter(pl.col("error").is_null() & pl.col("doc").is_not_null())
     adv = lines.group_by("file").agg(
         pl.first("entity"), pl.first("payer_name"), pl.first("received_date"), pl.first("ref"), pl.first("total"), pl.first("currency"))

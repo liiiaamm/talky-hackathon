@@ -147,13 +147,14 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
          | ((digits.str.len_chars() >= 6) & pl.col("tnorm").str.contains(digits.str.slice(-6), literal=True))).alias("ev"))
     c = c.filter(pl.col("doc") | pl.col("ev")).with_columns(
         (pl.col("booking_date").str.to_date() - pl.col("due")).dt.total_days().abs().fill_null(0).alias("lag"),
-        # instalment number from the balance: when the balance shows earlier instalments were paid (total − open > 0), the
-        # right k is the one whose previous instalments sum to exactly that. An untouched balance proves nothing (it may just
-        # be unknown: ledger off, no opening balances), so it never overrides the due-date proximity below.
-        ((pl.col("kind") != "INST") | (((pl.col("total") - pl.col("open_amount")) > 0.011)
-                                        & ((pl.col("total") - pl.col("open_amount") - pl.col("cum_before")).abs() <= 0.011))).alias("khit"))
-    # instalment number: balance-consistent first, then cited doc, then the instalment whose due date is closest to the booking date
-    c = c.sort(["khit", "doc", "lag"], descending=[True, True, False]).unique(["bank_txn_id", "item_id"], keep="first")
+        # an instalment the balance says is already paid (its predecessors' sum + its own amount <= what was paid before this
+        # resolver ran) cannot be paid again. The balance only EXCLUDES; it never picks: this resolver sees the whole window
+        # at once, so several instalments of one invoice inside the window share the same opening balance and must be told
+        # apart by their due dates below.
+        ((pl.col("kind") != "INST") | (pl.col("cum_before") + pl.col("exp") > pl.col("total") - pl.col("open_amount") + 0.011)).alias("unpaid"))
+    c = c.filter(pl.col("unpaid"))
+    # instalment number: cited doc first, then the instalment whose due date is closest to the booking date (per line & item)
+    c = c.sort(["doc", "lag"], descending=[True, False]).unique(["bank_txn_id", "item_id"], keep="first")
     c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind", "k"], keep="first", maintain_order=True)
     exc = (pl.when(pl.col("kind") == "INST").then(pl.when(pl.col("k") < pl.col("n")).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
            .when(pl.col("kind").is_in(["RET1", "ADV"])).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
