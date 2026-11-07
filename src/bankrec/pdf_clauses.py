@@ -153,9 +153,24 @@ def pdf_clauses(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
         # apart by their due dates below.
         ((pl.col("kind") != "INST") | (pl.col("cum_before") + pl.col("exp") > pl.col("total") - pl.col("open_amount") + 0.011)).alias("unpaid"))
     c = c.filter(pl.col("unpaid"))
-    # instalment number: cited doc first, then the instalment whose due date is closest to the booking date (per line & item)
-    c = c.sort(["doc", "lag"], descending=[True, False]).unique(["bank_txn_id", "item_id"], keep="first")
-    c = c.unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind", "k"], keep="first", maintain_order=True)
+    # One line per bank_txn_id (best evidence first, then closest due date), but instalments of the SAME invoice are assigned
+    # one-to-one in booking order: the earliest receipt takes the lowest unpaid instalment whose amount matches, the next
+    # receipt the next one, and so on (instalments are paid in order, POLICIES §5.8). Picking "closest due date" for each
+    # line independently made two receipts of equal amount claim the same instalment, and the dedup dropped the loser.
+    c = c.sort(["doc", "lag"], descending=[True, False])
+    best_item = c.unique("bank_txn_id", keep="first", maintain_order=True).select("bank_txn_id", "item_id", "kind")
+    c = c.join(best_item, on=["bank_txn_id", "item_id", "kind"], how="semi")          # keep every feasible k of the chosen item
+    inst = c.filter(pl.col("kind") == "INST").sort(["item_id", "booking_date", "bank_txn_id", "k"])
+    keep, taken, seen = [], set(), set()
+    for txn, iid, k in inst.select("bank_txn_id", "item_id", "k").iter_rows():
+        if txn in seen or (iid, k) in taken:
+            continue
+        seen.add(txn); taken.add((iid, k)); keep.append((txn, iid, k))
+    inst = inst.join(pl.DataFrame(keep, schema={"bank_txn_id": pl.Utf8, "item_id": pl.Utf8, "k": pl.Int64}, orient="row"),
+                     on=["bank_txn_id", "item_id", "k"], how="semi") if keep else inst.clear()
+    other = (c.filter(pl.col("kind") != "INST").unique(["bank_txn_id", "item_id"], keep="first", maintain_order=True)
+             .unique("bank_txn_id", keep="first", maintain_order=True).unique(["item_id", "kind"], keep="first", maintain_order=True))
+    c = pl.concat([inst, other.select(inst.columns)], how="vertical_relaxed").unique("bank_txn_id", keep="first", maintain_order=True)
     exc = (pl.when(pl.col("kind") == "INST").then(pl.when(pl.col("k") < pl.col("n")).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
            .when(pl.col("kind").is_in(["RET1", "ADV"])).then(pl.lit("PARTIAL")).otherwise(pl.lit("")))
     return mk_rows(c.with_columns(pl.col("cash").alias("amount")), "pdf_clause", exc)
