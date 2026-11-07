@@ -102,11 +102,13 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     items = _items(ctx, start)
     store = ItemStore(items)
     cu, su = ctx.customers.to_pandas().fillna(""), ctx.suppliers.to_pandas().fillna("")
-    matcher = CustomerMatcher(store, PartyResolver(cu, su), _entity_scope(ctx), cfg, terms=ctx.terms.to_pandas().fillna(""))
+    matcher = CustomerMatcher(store, PartyResolver(cu, su), _entity_scope(ctx), cfg, terms=ctx.terms.to_pandas().fillna(""),
+                              fx=ctx.fx.to_pandas() if ctx.fx is not None else None)
     ledger = _Ledger(items.open_cents.to_numpy())
     STATE.update(matcher=matcher, store=store, ledger=ledger)
     cols = ["bank_txn_id", "entity", "amount", "currency", "orig_amount", "orig_currency", "text", "ref1", "ref2",
-            "remittance_info", "end_to_end_id", "counterparty_name", "counterparty_account", "booking_date"]
+            "remittance_info", "end_to_end_id", "counterparty_name", "counterparty_account", "booking_date",
+            "bank_code", "statement_format"]
     df = lines.select([pl.col(c).fill_null("") for c in cols]).sort(["booking_date", "bank_txn_id"]).to_pandas()
     out = {k: [] for k in ROWS_SCHEMA}
     for t in df.itertuples(index=False):
