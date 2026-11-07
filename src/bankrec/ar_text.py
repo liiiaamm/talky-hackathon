@@ -25,6 +25,7 @@ import pandas as pd
 import polars as pl
 
 from .data import PQ, Ctx
+from .ap_bulk import bulk_mixed_runs
 from .deterministic import ROWS_SCHEMA, empty_rows
 
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -134,4 +135,6 @@ def ar_text(ctx: Ctx, pending: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(out, schema=ROWS_SCHEMA)
 
 
-RESOLVERS = [ar_text]
+# ap_bulk runs just before ar_text through this list, so it is active with the default BANKREC_ORDER and no pipeline change.
+# If `ap_bulk` is also added to BANKREC_ORDER the second copy claims nothing (lines it owns are no longer pending).
+RESOLVERS = [bulk_mixed_runs, ar_text]
